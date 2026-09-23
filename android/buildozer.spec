@@ -5,7 +5,9 @@
 title = Aske
 package.name = freetube
 package.domain = fr.perso
-version = 1.2
+# Version lue dans main.py (__version__), qui l'affiche aussi dans Paramètres.
+version.regex = __version__ = ['"](.*)['"]
+version.filename = %(source.dir)s/main.py
 
 source.dir = .
 source.include_exts = py,kv,png

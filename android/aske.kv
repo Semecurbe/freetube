@@ -7,6 +7,9 @@
 #:set MUTED rgb("#aaaaaa")
 #:set ACCENT rgb("#f04438")
 #:set AVATARS [rgb(c) for c in ("#f04438", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899")]
+# Hauteurs qui suivent la taille de police choisie dans Android (une ligne ≈ 1,2 × la police).
+#:set LINK_HEIGHT max(dp(28), sp(13) * 1.2 + dp(8))
+#:set RESULT_HEIGHT max(dp(106), dp(18) + (sp(14) + sp(12)) * 2 * 1.2 + LINK_HEIGHT)
 
 <WrappedLabel@Label>:
     text_size: self.width, None
@@ -38,7 +41,8 @@
 
 <TabButton@ButtonBehavior+Label>:
     active: False
-    font_size: sp(15)
+    # Plafonnée : avec une grande police Android, les trois onglets tiennent sur la largeur.
+    font_size: min(sp(15), dp(18))
     bold: self.active
     color: TEXT if self.active else MUTED
     canvas.before:
@@ -51,7 +55,7 @@
 # Nom de la chaîne affichée, avec le bouton pour l'ajouter à « Mes chaînes ».
 <ChannelHeader>:
     size_hint_y: None
-    height: dp(60)
+    height: max(dp(60), sp(20) * 1.2 + dp(22))
     padding: dp(16), dp(8), dp(12), dp(12)
     spacing: dp(12)
 
@@ -66,7 +70,7 @@
         fill: SURFACE if app.is_favorite else ACCENT
         font_size: sp(14)
         size_hint_x: None
-        width: dp(108)
+        width: max(dp(108), self.texture_size[0] + dp(28))
         on_release: app.toggle_favorite()
 
 # Une vidéo : miniature pleine largeur, puis titre, date et vues, description.
@@ -120,6 +124,108 @@
             color: MUTED
             max_lines: 4
 
+# Nom de la chaîne sous un résultat de recherche : un appui affiche ses vidéos.
+<ChannelLink@ButtonBehavior+LineLabel>:
+    font_size: sp(13)
+    color: TEXT if self.state == "down" else MUTED
+
+# Un résultat de recherche : miniature et durée à gauche ; titre, chaîne, vues et date à droite.
+<SearchResult>:
+    padding: dp(16), dp(8)
+    spacing: dp(12)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    FloatLayout:
+        size_hint: None, None
+        size: dp(160), dp(90)
+        pos_hint: {"top": 1}
+
+        AsyncImage:
+            source: root.thumbnail
+            fit_mode: "cover"
+            pos_hint: {"x": 0, "y": 0}
+            canvas.before:
+                Color:
+                    rgba: SURFACE
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+        # Durée (ou « EN DIRECT »), en bas à droite de la miniature comme sur YouTube.
+        Label:
+            text: root.duration
+            opacity: 1 if self.text else 0
+            font_size: sp(11)
+            bold: True
+            color: TEXT
+            size_hint: None, None
+            size: self.texture_size[0] + dp(8), self.texture_size[1] + dp(2)
+            pos: self.parent.right - self.width - dp(4), self.parent.y + dp(4)
+            canvas.before:
+                Color:
+                    rgba: ACCENT if root.live else (0, 0, 0, 0.8)
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [dp(4)]
+
+    BoxLayout:
+        orientation: "vertical"
+
+        WrappedLabel:
+            text: root.title
+            font_size: sp(14)
+            bold: True
+            color: TEXT
+            max_lines: 2
+
+        ChannelLink:
+            text: root.channel
+            size_hint_y: None
+            height: LINK_HEIGHT
+            on_release: root.open_channel()
+
+        WrappedLabel:
+            text: root.meta
+            font_size: sp(12)
+            color: MUTED
+            max_lines: 2
+
+        # Garde le texte en haut de la ligne.
+        Widget:
+
+# Titre d'une rubrique des paramètres.
+<SectionTitle@WrappedLabel>:
+    font_size: sp(14)
+    bold: True
+    color: ACCENT
+    padding: dp(16), dp(20), dp(16), dp(8)
+
+# Une ligne des paramètres : intitulé, et sa valeur en dessous.
+<SettingRow@BoxLayout>:
+    title: ""
+    value: ""
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    padding: dp(16), dp(10)
+    spacing: dp(2)
+
+    WrappedLabel:
+        text: root.title
+        font_size: sp(16)
+        color: TEXT
+
+    WrappedLabel:
+        text: root.value
+        font_size: sp(14)
+        color: MUTED
+
 # Une chaîne de « Mes chaînes » : pastille avec son initiale, nom, bouton pour la retirer.
 <ChannelRow>:
     size_hint_y: None
@@ -158,7 +264,7 @@
         fill: SURFACE
         font_size: sp(14)
         size_hint: None, None
-        size: dp(84), dp(36)
+        size: max(dp(84), self.texture_size[0] + dp(24)), dp(36)
         pos_hint: {"center_y": 0.5}
         on_release: app.remove_favorite(root.channel_id)
 
@@ -182,7 +288,7 @@ BoxLayout:
             BoxLayout:
                 orientation: "vertical"
 
-                # Recherche d'une chaîne
+                # Recherche de vidéos, ou d'une chaîne
                 BoxLayout:
                     size_hint_y: None
                     height: dp(68)
@@ -201,7 +307,7 @@ BoxLayout:
 
                         TextInput:
                             id: query
-                            hint_text: "@chaîne, adresse ou ID YouTube"
+                            hint_text: "Rechercher, ou @chaîne"
                             multiline: False
                             write_tab: False
                             font_size: sp(15)
@@ -217,7 +323,7 @@ BoxLayout:
                     PillButton:
                         text: "OK"
                         size_hint_x: None
-                        width: dp(64)
+                        width: max(dp(64), self.texture_size[0] + dp(28))
                         on_release:
                             query.focus = False
                             app.load(query.text)
@@ -231,18 +337,44 @@ BoxLayout:
                     padding: dp(24), dp(12)
                     height: self.texture_size[1] if self.text else 0
 
-                ScrollView:
-                    id: scroll
-                    do_scroll_x: False
-                    bar_width: dp(4)
+                ScreenManager:
+                    id: views
+                    transition: NoTransition()
 
-                    BoxLayout:
-                        id: videos
-                        orientation: "vertical"
-                        size_hint_y: None
-                        height: self.minimum_height
-                        spacing: dp(8)
-                        padding: 0, 0, 0, dp(24)
+                    # Les 10 dernières vidéos d'une chaîne
+                    Screen:
+                        name: "chaine"
+
+                        ScrollView:
+                            id: scroll
+                            do_scroll_x: False
+                            bar_width: dp(4)
+
+                            BoxLayout:
+                                id: videos
+                                orientation: "vertical"
+                                size_hint_y: None
+                                height: self.minimum_height
+                                spacing: dp(8)
+                                padding: 0, 0, 0, dp(24)
+
+                    # Les vidéos trouvées par une recherche
+                    Screen:
+                        name: "resultats"
+
+                        ResultList:
+                            id: results
+                            viewclass: "SearchResult"
+                            do_scroll_x: False
+                            bar_width: dp(4)
+
+                            RecycleBoxLayout:
+                                orientation: "vertical"
+                                default_size: None, RESULT_HEIGHT
+                                default_size_hint: 1, None
+                                size_hint_y: None
+                                height: self.minimum_height
+                                padding: 0, 0, 0, dp(24)
 
         Screen:
             name: "chaines"
@@ -269,6 +401,25 @@ BoxLayout:
                         height: self.minimum_height
                         padding: 0, dp(4), 0, dp(24)
 
+        Screen:
+            name: "parametres"
+
+            BoxLayout:
+                orientation: "vertical"
+
+                SectionTitle:
+                    text: "À propos"
+
+                SettingRow:
+                    title: "Créateur"
+                    value: "Onthesignal"
+
+                SettingRow:
+                    title: "Version"
+                    value: app.version
+
+                Widget:
+
     # Barre d'onglets
     BoxLayout:
         size_hint_y: None
@@ -286,6 +437,11 @@ BoxLayout:
             on_release: app.tab = "videos"
 
         TabButton:
-            text: "Mes chaînes (%d)" % app.favorite_count if app.favorite_count else "Mes chaînes"
+            text: "Mes chaînes"
             active: app.tab == "chaines"
             on_release: app.tab = "chaines"
+
+        TabButton:
+            text: "Paramètres"
+            active: app.tab == "parametres"
+            on_release: app.tab = "parametres"
