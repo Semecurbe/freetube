@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if channel_name %}{{ channel_name }} · {% endif %}FreeTube</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 2.5v11L14 8z' fill='%23d92d20'/></svg>">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="logo" href="{{ url_for('index') }}">Free<span>Tube</span></a>
+    <form class="search" action="{{ url_for('index') }}" method="get" role="search">
+      <input type="search" name="chaine" value="{{ query }}" required
+             placeholder="URL, @handle ou ID de la chaîne YouTube" aria-label="Chaîne YouTube">
+      <button type="submit">Afficher</button>
+    </form>
+  </header>
+
+  <main>
+    {% if error %}
+      <p class="message error">{{ error }}</p>
+    {% elif videos %}
+      <h1>{{ channel_name }}</h1>
+      <p class="subtitle">Dernières vidéos, à regarder sur yout-ube.com</p>
+      <div class="grid">
+        {% for video in videos %}
+          <article class="card">
+            <img class="thumb" src="{{ video.thumbnail }}" alt="" loading="lazy">
+            <div class="card-body">
+              <h2><a href="{{ video.url }}" target="_blank" rel="noopener noreferrer">{{ video.title }}</a></h2>
+              <p class="meta">
+                <time datetime="{{ video.published.isoformat() }}">{{ video.published|date_fr }}</time>
+                {%- if video.views is not none %} · {{ video.views|views_fr }}{% endif %}
+              </p>
+              {% if video.description %}
+                <p class="description">{{ video.description }}</p>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% elif query %}
+      <p class="message">Cette chaîne n'a publié aucune vidéo.</p>
+    {% else %}
+      <p class="message">
+        Entrez une chaîne YouTube pour afficher ses 10 dernières vidéos,<br>
+        par exemple <code>https://www.youtube.com/@NASA</code>, <code>@NASA</code>
+        ou <code>UCLA_DiR1FfKNvjuUpBHmylQ</code>.
+      </p>
+    {% endif %}
+  </main>
+</body>
+</html>
