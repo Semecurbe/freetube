@@ -1,0 +1,291 @@
+#:import rgb kivy.utils.get_color_from_hex
+#:import NoTransition kivy.uix.screenmanager.NoTransition
+#:set BG rgb("#0f0f0f")
+#:set BAR rgb("#181818")
+#:set SURFACE rgb("#272727")
+#:set TEXT rgb("#f1f1f1")
+#:set MUTED rgb("#aaaaaa")
+#:set ACCENT rgb("#f04438")
+#:set AVATARS [rgb(c) for c in ("#f04438", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899")]
+
+<WrappedLabel@Label>:
+    text_size: self.width, None
+    size_hint_y: None
+    height: self.texture_size[1]
+    halign: "left"
+    valign: "top"
+
+# Une seule ligne, terminée par « … » si elle est trop longue.
+<LineLabel@Label>:
+    text_size: self.size
+    halign: "left"
+    valign: "middle"
+    shorten: True
+    shorten_from: "right"
+
+<PillButton@ButtonBehavior+Label>:
+    fill: ACCENT
+    bold: True
+    font_size: sp(15)
+    color: TEXT
+    canvas.before:
+        Color:
+            rgba: (self.fill or ACCENT)[:3] + [0.7 if self.state == "down" else 1]
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+
+<TabButton@ButtonBehavior+Label>:
+    active: False
+    font_size: sp(15)
+    bold: self.active
+    color: TEXT if self.active else MUTED
+    canvas.before:
+        Color:
+            rgba: ACCENT if self.active else (0, 0, 0, 0)
+        Rectangle:
+            pos: self.center_x - dp(28), self.y + dp(8)
+            size: dp(56), dp(3)
+
+# Nom de la chaîne affichée, avec le bouton pour l'ajouter à « Mes chaînes ».
+<ChannelHeader>:
+    size_hint_y: None
+    height: dp(60)
+    padding: dp(16), dp(8), dp(12), dp(12)
+    spacing: dp(12)
+
+    LineLabel:
+        text: root.text
+        font_size: sp(20)
+        bold: True
+        color: TEXT
+
+    PillButton:
+        text: "Ajoutée" if app.is_favorite else "+ Ajouter"
+        fill: SURFACE if app.is_favorite else ACCENT
+        font_size: sp(14)
+        size_hint_x: None
+        width: dp(108)
+        on_release: app.toggle_favorite()
+
+# Une vidéo : miniature pleine largeur, puis titre, date et vues, description.
+<VideoCard>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    padding: 0, 0, 0, dp(16)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    AsyncImage:
+        source: root.thumbnail
+        size_hint_y: None
+        height: self.width * 9 / 16
+        # Recadre la miniature 4:3 de YouTube en 16:9, sans bandes noires.
+        fit_mode: "cover"
+        canvas.before:
+            Color:
+                rgba: SURFACE
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    BoxLayout:
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
+        padding: dp(16), dp(12), dp(16), 0
+        spacing: dp(4)
+
+        WrappedLabel:
+            text: root.title
+            font_size: sp(16)
+            bold: True
+            color: TEXT
+            max_lines: 2
+
+        WrappedLabel:
+            text: root.meta
+            font_size: sp(13)
+            color: MUTED
+
+        WrappedLabel:
+            text: root.description
+            font_size: sp(13)
+            color: MUTED
+            max_lines: 4
+
+# Une chaîne de « Mes chaînes » : pastille avec son initiale, nom, bouton pour la retirer.
+<ChannelRow>:
+    size_hint_y: None
+    height: dp(68)
+    padding: dp(16), dp(10), dp(12), dp(10)
+    spacing: dp(14)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: root.name[:1].upper()
+        font_size: sp(18)
+        bold: True
+        color: TEXT
+        size_hint_x: None
+        width: self.height
+        canvas.before:
+            Color:
+                rgba: AVATARS[sum(map(ord, root.channel_id)) % len(AVATARS)]
+            Ellipse:
+                pos: self.pos
+                size: self.size
+
+    LineLabel:
+        text: root.name
+        font_size: sp(16)
+        bold: True
+        color: TEXT
+
+    PillButton:
+        text: "Retirer"
+        fill: SURFACE
+        font_size: sp(14)
+        size_hint: None, None
+        size: dp(84), dp(36)
+        pos_hint: {"center_y": 0.5}
+        on_release: app.remove_favorite(root.channel_id)
+
+BoxLayout:
+    orientation: "vertical"
+
+    WrappedLabel:
+        text: "Aske"
+        font_size: sp(24)
+        bold: True
+        color: ACCENT
+        padding: dp(16), dp(12), dp(16), dp(4)
+
+    ScreenManager:
+        id: screens
+        transition: NoTransition()
+
+        Screen:
+            name: "videos"
+
+            BoxLayout:
+                orientation: "vertical"
+
+                # Recherche d'une chaîne
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(68)
+                    padding: dp(16), dp(10)
+                    spacing: dp(8)
+
+                    # Fond arrondi dessiné par le parent : le curseur et le texte du champ restent visibles.
+                    BoxLayout:
+                        canvas.before:
+                            Color:
+                                rgba: SURFACE
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [self.height / 2]
+
+                        TextInput:
+                            id: query
+                            hint_text: "@chaîne, adresse ou ID YouTube"
+                            multiline: False
+                            write_tab: False
+                            font_size: sp(15)
+                            padding: dp(18), (self.height - self.line_height) / 2
+                            background_normal: ""
+                            background_active: ""
+                            background_color: 0, 0, 0, 0
+                            foreground_color: TEXT
+                            hint_text_color: MUTED
+                            cursor_color: ACCENT
+                            on_text_validate: app.load(self.text)
+
+                    PillButton:
+                        text: "OK"
+                        size_hint_x: None
+                        width: dp(64)
+                        on_release:
+                            query.focus = False
+                            app.load(query.text)
+
+                # Chargement ou message d'erreur
+                WrappedLabel:
+                    text: app.status
+                    color: MUTED
+                    font_size: sp(14)
+                    halign: "center"
+                    padding: dp(24), dp(12)
+                    height: self.texture_size[1] if self.text else 0
+
+                ScrollView:
+                    id: scroll
+                    do_scroll_x: False
+                    bar_width: dp(4)
+
+                    BoxLayout:
+                        id: videos
+                        orientation: "vertical"
+                        size_hint_y: None
+                        height: self.minimum_height
+                        spacing: dp(8)
+                        padding: 0, 0, 0, dp(24)
+
+        Screen:
+            name: "chaines"
+
+            BoxLayout:
+                orientation: "vertical"
+
+                WrappedLabel:
+                    text: "" if app.favorite_count else "Aucune chaîne pour l'instant.\nAffichez une chaîne dans l'onglet Vidéos, puis appuyez sur «\u00a0+\u00a0Ajouter\u00a0»."
+                    color: MUTED
+                    font_size: sp(14)
+                    halign: "center"
+                    padding: dp(24), dp(16)
+                    height: self.texture_size[1] if self.text else 0
+
+                ScrollView:
+                    do_scroll_x: False
+                    bar_width: dp(4)
+
+                    BoxLayout:
+                        id: favorites
+                        orientation: "vertical"
+                        size_hint_y: None
+                        height: self.minimum_height
+                        padding: 0, dp(4), 0, dp(24)
+
+    # Barre d'onglets
+    BoxLayout:
+        size_hint_y: None
+        height: dp(56)
+        canvas.before:
+            Color:
+                rgba: BAR
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        TabButton:
+            text: "Vidéos"
+            active: app.tab == "videos"
+            on_release: app.tab = "videos"
+
+        TabButton:
+            text: "Mes chaînes (%d)" % app.favorite_count if app.favorite_count else "Mes chaînes"
+            active: app.tab == "chaines"
+            on_release: app.tab = "chaines"

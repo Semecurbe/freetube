@@ -1,17 +1,23 @@
-"""Lecteur vidéo intégré (Android) : une WebView plein écran par-dessus l'interface Kivy."""
+"""Lecteur vidéo intégré (Android) : une WebView plein écran par-dessus l'interface Kivy.
+
+Écran éteint, la vidéo continue : BackgroundWebView ne se laisse pas mettre en pause quand
+la fenêtre devient invisible, et le service MediaService garde Aske actif (dossier java/).
+"""
 
 from android.runnable import run_on_ui_thread
 from jnius import PythonJavaClass, autoclass, cast, java_method
 
 ActivityInfo = autoclass("android.content.pm.ActivityInfo")
+BackgroundWebView = autoclass("fr.perso.freetube.BackgroundWebView")
 BuildVersion = autoclass("android.os.Build$VERSION")
 Color = autoclass("android.graphics.Color")
+Context = autoclass("android.content.Context")
 KeyEvent = autoclass("android.view.KeyEvent")
 LayoutParams = autoclass("android.view.ViewGroup$LayoutParams")
+MediaService = autoclass("fr.perso.freetube.MediaService")
 PythonActivity = autoclass("org.kivy.android.PythonActivity")
 View = autoclass("android.view.View")
 WebChromeClient = autoclass("android.webkit.WebChromeClient")
-WebView = autoclass("android.webkit.WebView")
 WebViewClient = autoclass("android.webkit.WebViewClient")
 
 PAUSE_VIDEOS = "document.querySelectorAll('video').forEach(v => v.pause())"
@@ -41,6 +47,7 @@ class AndroidPlayer:
 
     def __init__(self):
         self.webview = None
+        self.title = ""
         # Référence gardée côté Python : sinon l'écouteur serait détruit par le ramasse-miettes.
         self.back_listener = BackKeyListener(self.close)
 
@@ -49,12 +56,14 @@ class AndroidPlayer:
         return self.webview is not None
 
     @run_on_ui_thread
-    def open(self, url):
+    def open(self, url, title):
+        activity = PythonActivity.mActivity
+        self.title = title
+        MediaService.start(activity, title)
         if self.webview:
             self.webview.loadUrl(url)
             return
-        activity = PythonActivity.mActivity
-        webview = WebView(activity)
+        webview = BackgroundWebView(activity)
         settings = webview.getSettings()
         settings.setJavaScriptEnabled(True)
         settings.setDomStorageEnabled(True)
@@ -76,22 +85,32 @@ class AndroidPlayer:
     def close(self):
         if not self.webview:
             return
+        activity = PythonActivity.mActivity
         webview, self.webview = self.webview, None
         cast("android.view.ViewGroup", webview.getParent()).removeView(webview)
         webview.destroy()
+        MediaService.stop(activity)
         self._show_system_bars(True)
-        PythonActivity.mActivity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+        activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
 
     @run_on_ui_thread
     def pause(self):
-        if self.webview:
+        """Aske passe en arrière-plan : la lecture continue seulement si l'écran s'est éteint."""
+        if not self.webview:
+            return
+        activity = PythonActivity.mActivity
+        power = cast("android.os.PowerManager", activity.getSystemService(Context.POWER_SERVICE))
+        if power.isInteractive():
+            # Écran allumé : on est passé à une autre application, on met en pause.
             self.webview.evaluateJavascript(PAUSE_VIDEOS, None)
             self.webview.onPause()
+            MediaService.stop(activity)
 
     @run_on_ui_thread
     def resume(self):
         if self.webview:
             self.webview.onResume()
+            MediaService.start(PythonActivity.mActivity, self.title)
 
     def _show_system_bars(self, show):
         """Affiche ou masque la barre d'état et la barre de navigation (mode immersif).

@@ -1,4 +1,4 @@
-"""FreeTube : les 10 dernières vidéos d'une chaîne YouTube, à regarder sur yout-ube.com."""
+"""Aske : les 10 dernières vidéos de vos chaînes YouTube, lues via yout-ube.com."""
 
 import os
 import re
@@ -16,10 +16,9 @@ from kivy.app import App
 from kivy.clock import mainthread
 from kivy.core.image import Image as CoreImage
 from kivy.core.window import Window
-from kivy.factory import Factory
 from kivy.graphics.texture import Texture
 from kivy.loader import Loader
-from kivy.properties import StringProperty
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivy.storage.jsonstore import JsonStore
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -161,11 +160,32 @@ class VideoCard(ButtonBehavior, BoxLayout):
     description = StringProperty()
 
     def on_release(self):
-        App.get_running_app().play(self.url)
+        App.get_running_app().play(self.url, self.title)
 
 
-class FreeTubeApp(App):
+class ChannelHeader(BoxLayout):
+    """Nom de la chaîne affichée, avec le bouton pour l'ajouter à « Mes chaînes »."""
+
+    text = StringProperty()
+
+
+class ChannelRow(ButtonBehavior, BoxLayout):
+    """Une chaîne de l'onglet « Mes chaînes » : un appui affiche ses vidéos."""
+
+    channel_id = StringProperty()
+    name = StringProperty()
+    query = StringProperty()
+
+    def on_release(self):
+        App.get_running_app().open_favorite(self.query, self.channel_id)
+
+
+class AskeApp(App):
     status = StringProperty()
+    tab = StringProperty("videos")
+    favorite_count = NumericProperty(0)
+    # La chaîne affichée fait-elle partie de « Mes chaînes » ?
+    is_favorite = BooleanProperty(False)
 
     def build(self):
         Window.clearcolor = get_color_from_hex("#0f0f0f")
@@ -180,23 +200,69 @@ class FreeTubeApp(App):
         self.pending = None
         # ID des chaînes déjà trouvées, pour ne pas retélécharger leur page (lourde).
         self.channel_ids = {}
+        # Chaîne affichée, et « Mes chaînes » : fiches {"id", "name", "query"}.
+        self.current = None
+        self.favorites = self.store.get("favoris")["chaines"] if self.store.exists("favoris") else []
         self.player = AndroidPlayer() if platform == "android" else None
         Window.bind(on_keyboard=self.on_keyboard)
-        # L'interface est décrite dans freetube.kv, chargé automatiquement par Kivy.
+        # L'interface est décrite dans aske.kv, chargé automatiquement par Kivy.
 
-    def play(self, url):
+    def play(self, url, title):
         """Lit la vidéo dans l'application (Android) ou dans le navigateur (ordinateur)."""
         if self.player:
-            self.player.open(url)
+            self.player.open(url, title)
         else:
             webbrowser.open(url)
 
     def on_keyboard(self, window, key, *args):
-        # « Retour » d'Android (touche Échap pour Kivy) : referme d'abord le lecteur.
-        if key == 27 and self.player and self.player.is_open:
+        # « Retour » d'Android (touche Échap pour Kivy) : referme d'abord le lecteur,
+        # puis revient à l'onglet Vidéos ; depuis celui-ci, quitte l'application.
+        if key != 27:
+            return False
+        if self.player and self.player.is_open:
             self.player.close()
             return True
+        if self.tab != "videos":
+            self.tab = "videos"
+            return True
         return False
+
+    def on_tab(self, app, tab):
+        self.root.ids.screens.current = tab
+
+    def toggle_favorite(self):
+        """Ajoute la chaîne affichée à « Mes chaînes », ou l'en retire."""
+        if not self.current:
+            return
+        if self.is_favorite:
+            self.remove_favorite(self.current["id"])
+        else:
+            self.favorites.append(dict(self.current))
+            self.save_favorites()
+
+    def remove_favorite(self, channel_id):
+        self.favorites = [fav for fav in self.favorites if fav["id"] != channel_id]
+        self.save_favorites()
+
+    def save_favorites(self):
+        self.favorites.sort(key=lambda fav: fav["name"].casefold())
+        self.store.put("favoris", chaines=self.favorites)
+        self.refresh_favorites()
+
+    def refresh_favorites(self):
+        box = self.root.ids.favorites
+        box.clear_widgets()
+        for fav in self.favorites:
+            box.add_widget(ChannelRow(channel_id=fav["id"], name=fav["name"], query=fav["query"]))
+        self.favorite_count = len(self.favorites)
+        self.is_favorite = bool(self.current) and any(
+            fav["id"] == self.current["id"] for fav in self.favorites)
+
+    def open_favorite(self, query, channel_id):
+        self.channel_ids[query] = channel_id
+        self.root.ids.query.text = query
+        self.tab = "videos"
+        self.load(query)
 
     def on_pause(self):
         if self.player:
@@ -208,6 +274,7 @@ class FreeTubeApp(App):
             self.player.resume()
 
     def on_start(self):
+        self.refresh_favorites()
         if self.store.exists("chaine"):
             saved = self.store.get("chaine")
             self.channel_ids[saved["query"]] = saved["channel_id"]
@@ -240,9 +307,11 @@ class FreeTubeApp(App):
             return
         self.channel_ids[query] = channel_id
         self.store.put("chaine", query=query, channel_id=channel_id)
+        self.current = {"id": channel_id, "name": channel, "query": query}
+        self.is_favorite = any(fav["id"] == channel_id for fav in self.favorites)
         box = self.root.ids.videos
         box.clear_widgets()
-        box.add_widget(Factory.ChannelTitle(text=channel))
+        box.add_widget(ChannelHeader(text=channel))
         for video in videos:
             box.add_widget(VideoCard(**video))
         self.root.ids.scroll.scroll_y = 1
@@ -252,9 +321,11 @@ class FreeTubeApp(App):
     def _show_error(self, query, message):
         if query != self.pending:
             return
+        self.current = None
+        self.is_favorite = False
         self.root.ids.videos.clear_widgets()
         self.status = message
 
 
 if __name__ == "__main__":
-    FreeTubeApp().run()
+    AskeApp().run()

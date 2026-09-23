@@ -1,14 +1,15 @@
 [app]
 
 # Nom affiché sous l'icône, et identifiant unique de l'application
-title = FreeTube
+# (l'identifiant fr.perso.freetube est gardé : les mises à jour s'installent par-dessus)
+title = Aske
 package.name = freetube
 package.domain = fr.perso
-version = 1.1
+version = 1.2
 
 source.dir = .
 source.include_exts = py,kv,png
-source.exclude_dirs = bin
+source.exclude_dirs = bin, java
 
 # certifi : certificats racine pour les connexions HTTPS
 requirements = python3,kivy,certifi
@@ -22,7 +23,13 @@ android.presplash_color = #0f0f0f
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET
+android.permissions = INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, FOREGROUND_SERVICE_MEDIA_PLAYBACK
+
+# Service qui garde la lecture active écran éteint (java/fr/perso/freetube/MediaService.java).
+# Il tourne dans le processus de l'application, là où se trouve le lecteur.
+android.add_src = java
+p4a.extra_args = --extra-manifest-application-xml='<service android:name="fr.perso.freetube.MediaService" android:foregroundServiceType="mediaPlayback" android:exported="false" android:stopWithTask="true" />'
+
 # Android 14 : viser Android 15 obligerait l'application à dessiner sous la barre d'état.
 android.api = 34
 android.minapi = 24

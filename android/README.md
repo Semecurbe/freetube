@@ -1,12 +1,22 @@
-# FreeTube pour Android
+# Aske
 
 Application Android écrite en Python avec [Kivy]. Elle affiche les 10 dernières vidéos d'une
 chaîne YouTube (miniature, titre, date, vues, description). Un appui sur une vidéo la lit
 directement dans l'application, en plein écran, via `yout-ube.com` : tournez le téléphone pour
 la regarder en paysage, et utilisez « retour » pour revenir à la liste.
 
+- **Mes chaînes** : le bouton « + Ajouter », à côté du nom de la chaîne affichée, l'enregistre
+  dans l'onglet « Mes chaînes ». Un appui sur une chaîne de cet onglet affiche ses vidéos.
+- **Écoute écran éteint** : éteignez l'écran pendant une vidéo, le son continue. Passer à une
+  autre application met la vidéo en pause ; elle reprend au retour dans Aske.
+
 Pas de serveur ni de clé API : l'application lit directement le flux RSS public de YouTube.
 Elle retient la dernière chaîne affichée et la recharge à chaque ouverture.
+
+Pendant la lecture, Android affiche une notification « Aske » : c'est elle qui permet de
+continuer écran éteint. Sur Android 13 et plus, elle n'apparaît que si les notifications
+d'Aske sont autorisées (*Paramètres → Applications → Aske → Notifications*) ; la lecture
+écran éteint fonctionne dans les deux cas.
 
 ## Installer sur le téléphone
 
@@ -16,7 +26,7 @@ Elle retient la dernière chaîne affichée et la recharge à chaque ouverture.
 3. Installez l'APK (`adb` a été téléchargé avec le SDK Android lors de la compilation) :
 
    ```bash
-   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.1-arm64-v8a-debug.apk
+   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.2-arm64-v8a-debug.apk
    ```
 
 Sans câble : copiez le fichier `.apk` sur le téléphone et ouvrez-le. Android demandera
