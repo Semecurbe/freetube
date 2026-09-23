@@ -108,7 +108,7 @@ def date_fr(value):
 @app.template_filter("views_fr")
 def views_fr(count):
     """232545 → « 232 545 vues »."""
-    return f"{count:,}".replace(",", " ") + (" vue" if count < 2 else " vues")
+    return f"{count:,}".replace(",", "\u202f") + (" vue" if count < 2 else " vues")
 
 
 @app.route("/")
