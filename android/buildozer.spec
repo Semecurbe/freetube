@@ -4,7 +4,7 @@
 title = FreeTube
 package.name = freetube
 package.domain = fr.perso
-version = 1.0
+version = 1.1
 
 source.dir = .
 source.include_exts = py,kv,png

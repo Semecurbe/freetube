@@ -25,6 +25,9 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.utils import get_color_from_hex, platform
 
+if platform == "android":
+    from player import AndroidPlayer
+
 MAX_VIDEOS = 10
 DESCRIPTION_LENGTH = 300
 WATCH_URL = "https://www.yout-ube.com/watch?v={}"
@@ -148,21 +151,8 @@ def views_fr(count):
     return f"{count:,}".replace(",", "\u00a0") + (" vue" if count < 2 else " vues")
 
 
-def open_url(url):
-    """Ouvre l'adresse dans le navigateur du téléphone (ou de l'ordinateur)."""
-    if platform == "android":
-        from jnius import autoclass
-
-        Intent = autoclass("android.content.Intent")
-        Uri = autoclass("android.net.Uri")
-        activity = autoclass("org.kivy.android.PythonActivity").mActivity
-        activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    else:
-        webbrowser.open(url)
-
-
 class VideoCard(ButtonBehavior, BoxLayout):
-    """Vignette d'une vidéo : un appui l'ouvre sur yout-ube.com."""
+    """Vignette d'une vidéo : un appui la lance."""
 
     url = StringProperty()
     thumbnail = StringProperty()
@@ -171,7 +161,7 @@ class VideoCard(ButtonBehavior, BoxLayout):
     description = StringProperty()
 
     def on_release(self):
-        open_url(self.url)
+        App.get_running_app().play(self.url)
 
 
 class FreeTubeApp(App):
@@ -190,7 +180,32 @@ class FreeTubeApp(App):
         self.pending = None
         # ID des chaînes déjà trouvées, pour ne pas retélécharger leur page (lourde).
         self.channel_ids = {}
+        self.player = AndroidPlayer() if platform == "android" else None
+        Window.bind(on_keyboard=self.on_keyboard)
         # L'interface est décrite dans freetube.kv, chargé automatiquement par Kivy.
+
+    def play(self, url):
+        """Lit la vidéo dans l'application (Android) ou dans le navigateur (ordinateur)."""
+        if self.player:
+            self.player.open(url)
+        else:
+            webbrowser.open(url)
+
+    def on_keyboard(self, window, key, *args):
+        # « Retour » d'Android (touche Échap pour Kivy) : referme d'abord le lecteur.
+        if key == 27 and self.player and self.player.is_open:
+            self.player.close()
+            return True
+        return False
+
+    def on_pause(self):
+        if self.player:
+            self.player.pause()
+        return True
+
+    def on_resume(self):
+        if self.player:
+            self.player.resume()
 
     def on_start(self):
         if self.store.exists("chaine"):

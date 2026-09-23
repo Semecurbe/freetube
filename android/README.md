@@ -1,8 +1,9 @@
 # FreeTube pour Android
 
 Application Android écrite en Python avec [Kivy]. Elle affiche les 10 dernières vidéos d'une
-chaîne YouTube (miniature, titre, date, vues, description). Un appui sur une vidéo l'ouvre sur
-`yout-ube.com` dans le navigateur du téléphone.
+chaîne YouTube (miniature, titre, date, vues, description). Un appui sur une vidéo la lit
+directement dans l'application, en plein écran, via `yout-ube.com` : tournez le téléphone pour
+la regarder en paysage, et utilisez « retour » pour revenir à la liste.
 
 Pas de serveur ni de clé API : l'application lit directement le flux RSS public de YouTube.
 Elle retient la dernière chaîne affichée et la recharge à chaque ouverture.
@@ -15,7 +16,7 @@ Elle retient la dernière chaîne affichée et la recharge à chaque ouverture.
 3. Installez l'APK (`adb` a été téléchargé avec le SDK Android lors de la compilation) :
 
    ```bash
-   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.0-arm64-v8a-debug.apk
+   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.1-arm64-v8a-debug.apk
    ```
 
 Sans câble : copiez le fichier `.apk` sur le téléphone et ouvrez-le. Android demandera
@@ -26,11 +27,16 @@ d'autoriser l'installation d'applications de cette source.
 Depuis ce dossier :
 
 ```bash
-docker run --rm -v "$HOME/.buildozer":/home/user/.buildozer -v "$PWD":/home/user/hostcwd kivy/buildozer android debug
+docker run --rm -e ANDROID_USER_HOME=/home/user/.android -v "$HOME/.android":/home/user/.android \
+  -v "$HOME/.buildozer":/home/user/.buildozer -v "$PWD":/home/user/hostcwd kivy/buildozer android debug
 ```
 
 L'APK est créé dans `bin/`. La première compilation télécharge le SDK et le NDK Android dans
 `~/.buildozer` ; les suivantes ne prennent que quelques minutes.
+
+Le dossier `~/.android` monté dans le conteneur conserve la clé de signature
+(`debug.keystore`). Sans lui, chaque compilation serait signée avec une nouvelle clé, et Android
+refuserait d'installer la nouvelle version par-dessus l'ancienne. Ne supprimez donc pas ce fichier.
 
 ## Tester sur PC
 
