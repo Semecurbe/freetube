@@ -1,8 +1,11 @@
 #:import rgb kivy.utils.get_color_from_hex
 #:import NoTransition kivy.uix.screenmanager.NoTransition
+#:import ICONS icons.ICONS
+#:import ICON_FONT icons.ICON_FONT
 #:set BG rgb("#0f0f0f")
 #:set BAR rgb("#181818")
 #:set SURFACE rgb("#272727")
+#:set RAISED rgb("#3a3a3a")
 #:set TEXT rgb("#f1f1f1")
 #:set MUTED rgb("#aaaaaa")
 #:set ACCENT rgb("#f04438")
@@ -10,6 +13,7 @@
 # Hauteurs qui suivent la taille de police choisie dans Android (une ligne ≈ 1,2 × la police).
 #:set LINK_HEIGHT max(dp(28), sp(13) * 1.2 + dp(8))
 #:set RESULT_HEIGHT max(dp(106), dp(18) + (sp(14) + sp(12)) * 2 * 1.2 + LINK_HEIGHT)
+#:set PILL_HEIGHT max(dp(40), sp(14) * 1.2 + dp(18))
 
 <WrappedLabel@Label>:
     text_size: self.width, None
@@ -26,9 +30,11 @@
     shorten: True
     shorten_from: "right"
 
+# Bouton arrondi ; le texte peut commencer par une icône ([font=…]…[/font]).
 <PillButton@ButtonBehavior+Label>:
     fill: ACCENT
     bold: True
+    markup: True
     font_size: sp(15)
     color: TEXT
     canvas.before:
@@ -39,41 +45,165 @@
             size: self.size
             radius: [self.height / 2]
 
-<TabButton@ButtonBehavior+Label>:
-    active: False
-    # Plafonnée : avec une grande police Android, les trois onglets tiennent sur la largeur.
-    font_size: min(sp(15), dp(18))
-    bold: self.active
-    color: TEXT if self.active else MUTED
+# Bouton arrondi gris, à la largeur de son texte.
+<SmallPill@PillButton>:
+    fill: SURFACE
+    font_size: sp(14)
+    size_hint: None, None
+    size: self.texture_size[0] + dp(28), PILL_HEIGHT
+
+<Icon@Label>:
+    font_name: ICON_FONT
+    font_size: dp(24)
+    color: TEXT
+
+<IconButton@ButtonBehavior+Icon>:
+    size_hint: None, None
+    size: dp(44), dp(44)
+    color: TEXT if self.state == "down" else MUTED
     canvas.before:
         Color:
-            rgba: ACCENT if self.active else (0, 0, 0, 0)
-        Rectangle:
-            pos: self.center_x - dp(28), self.y + dp(8)
-            size: dp(56), dp(3)
+            rgba: SURFACE if self.state == "down" else (0, 0, 0, 0)
+        Ellipse:
+            pos: self.pos
+            size: self.size
 
-# Nom de la chaîne affichée, avec le bouton pour l'ajouter à « Mes chaînes ».
-<ChannelHeader>:
-    size_hint_y: None
-    height: max(dp(60), sp(20) * 1.2 + dp(22))
-    padding: dp(16), dp(8), dp(12), dp(12)
-    spacing: dp(12)
+# Champ de texte ; FieldBox dessine son fond arrondi (le curseur et le texte restent visibles).
+<FieldBox@BoxLayout>:
+    canvas.before:
+        Color:
+            rgba: SURFACE
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+
+<Field@TextInput>:
+    multiline: False
+    write_tab: False
+    font_size: sp(15)
+    padding: dp(18), (self.height - self.line_height) / 2
+    background_normal: ""
+    background_active: ""
+    background_color: 0, 0, 0, 0
+    foreground_color: TEXT
+    hint_text_color: MUTED
+    cursor_color: ACCENT
+
+<TabButton@ButtonBehavior+BoxLayout>:
+    icon: ""
+    text: ""
+    active: False
+    orientation: "vertical"
+    padding: 0, dp(8), 0, dp(8)
+
+    Icon:
+        text: root.icon
+        color: ACCENT if root.active else MUTED
+
+    Label:
+        text: root.text
+        # Plafonnée : avec une grande police Android, les cinq onglets tiennent sur la largeur.
+        font_size: min(sp(11), dp(12))
+        color: TEXT if root.active else MUTED
+        size_hint_y: None
+        height: self.texture_size[1]
+
+# Pastille ronde avec l'initiale d'une chaîne ; sa couleur dépend de l'ID de la chaîne.
+<Avatar@Label>:
+    name: ""
+    channel_id: ""
+    text: self.name[:1].upper()
+    bold: True
+    color: TEXT
+    size_hint_x: None
+    width: self.height
+    canvas.before:
+        Color:
+            rgba: AVATARS[sum(map(ord, self.channel_id)) % len(AVATARS)]
+        Ellipse:
+            pos: self.pos
+            size: self.size
+
+# Nom de la chaîne sous une vidéo d'une liste : un appui affiche ses vidéos.
+<ChannelLink@ButtonBehavior+BoxLayout>:
+    name: ""
+    channel_id: ""
+    spacing: dp(6)
+
+    Avatar:
+        name: root.name
+        channel_id: root.channel_id
+        font_size: sp(10)
+        size_hint_y: None
+        height: sp(18)
+        pos_hint: {"center_y": 0.5}
 
     LineLabel:
+        text: root.name
+        font_size: sp(13)
+        color: TEXT if root.state == "down" else MUTED
+
+# Barre rouge sous une miniature : la part de la vidéo déjà regardée.
+<ProgressLine@Widget>:
+    progress: 0
+    opacity: 1 if self.progress > 0 else 0
+    canvas:
+        Color:
+            rgba: 1, 1, 1, 0.35
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: ACCENT
+        Rectangle:
+            pos: self.pos
+            size: self.width * self.progress, self.height
+
+# Chaîne de la vidéo en cours (pastille, nom, flèche) : un appui l'affiche.
+<ChannelButton@ButtonBehavior+BoxLayout>:
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(8)]
+
+# Nom de la chaîne affichée ; « Tout lire » lit ses vidéos à la suite, « S'abonner » l'ajoute
+# à « Mes chaînes ».
+<ChannelHeader>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    padding: dp(16), dp(8), dp(16), dp(12)
+    spacing: dp(10)
+
+    WrappedLabel:
         text: root.text
         font_size: sp(20)
         bold: True
         color: TEXT
+        max_lines: 2
 
-    PillButton:
-        text: "Ajoutée" if app.is_favorite else "+ Ajouter"
-        fill: SURFACE if app.is_favorite else ACCENT
-        font_size: sp(14)
-        size_hint_x: None
-        width: max(dp(108), self.texture_size[0] + dp(28))
-        on_release: app.toggle_favorite()
+    BoxLayout:
+        size_hint_y: None
+        height: PILL_HEIGHT
+        spacing: dp(8)
 
-# Une vidéo : miniature pleine largeur, puis titre, date et vues, description.
+        SmallPill:
+            text: "[font=%s]%s[/font] Tout lire" % (ICON_FONT, ICONS["play"])
+            on_release: app.play_channel()
+
+        SmallPill:
+            text: "Abonné" if app.is_favorite else "S'abonner"
+            fill: SURFACE if app.is_favorite else ACCENT
+            size: max(dp(108), self.texture_size[0] + dp(28)), PILL_HEIGHT
+            on_release: app.toggle_favorite()
+
+        Widget:
+
+# Une vidéo de la chaîne affichée : miniature pleine largeur, titre, date et vues, description.
 <VideoCard>:
     orientation: "vertical"
     size_hint_y: None
@@ -98,6 +228,11 @@
             Rectangle:
                 pos: self.pos
                 size: self.size
+
+    ProgressLine:
+        progress: root.progress
+        size_hint_y: None
+        height: dp(3)
 
     BoxLayout:
         orientation: "vertical"
@@ -124,14 +259,10 @@
             color: MUTED
             max_lines: 4
 
-# Nom de la chaîne sous un résultat de recherche : un appui affiche ses vidéos.
-<ChannelLink@ButtonBehavior+LineLabel>:
-    font_size: sp(13)
-    color: TEXT if self.state == "down" else MUTED
-
-# Un résultat de recherche : miniature et durée à gauche ; titre, chaîne, vues et date à droite.
-<SearchResult>:
-    padding: dp(16), dp(8)
+# Une vidéo d'une liste (résultats, playlist, historique, téléchargements) : miniature et durée
+# à gauche ; titre, chaîne et informations à droite ; bouton éventuel tout à droite.
+<VideoRow>:
+    padding: dp(16), dp(8), (dp(4) if self.trailing else dp(16)), dp(8)
     spacing: dp(12)
     canvas.before:
         Color:
@@ -165,7 +296,7 @@
             color: TEXT
             size_hint: None, None
             size: self.texture_size[0] + dp(8), self.texture_size[1] + dp(2)
-            pos: self.parent.right - self.width - dp(4), self.parent.y + dp(4)
+            pos: self.parent.right - self.width - dp(4), self.parent.y + dp(7)
             canvas.before:
                 Color:
                     rgba: ACCENT if root.live else (0, 0, 0, 0.8)
@@ -173,6 +304,12 @@
                     pos: self.pos
                     size: self.size
                     radius: [dp(4)]
+
+        ProgressLine:
+            progress: root.progress
+            size_hint: None, None
+            size: self.parent.width, dp(3)
+            pos: self.parent.pos
 
     BoxLayout:
         orientation: "vertical"
@@ -185,7 +322,8 @@
             max_lines: 2
 
         ChannelLink:
-            text: root.channel
+            name: root.channel
+            channel_id: root.channel_id
             size_hint_y: None
             height: LINK_HEIGHT
             on_release: root.open_channel()
@@ -198,6 +336,152 @@
 
         # Garde le texte en haut de la ligne.
         Widget:
+
+    IconButton:
+        text: root.trailing
+        opacity: 1 if root.trailing else 0
+        disabled: not root.trailing
+        width: dp(44) if root.trailing else 0
+        pos_hint: {"center_y": 0.5}
+        on_release: root.trailing_pressed()
+
+# Une chaîne de « Mes chaînes » : pastille avec son initiale, nom, bouton pour la retirer.
+<ChannelRow>:
+    size_hint_y: None
+    height: max(dp(68), sp(16) * 1.2 + dp(28))
+    padding: dp(16), dp(10), dp(12), dp(10)
+    spacing: dp(14)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Avatar:
+        name: root.name
+        channel_id: root.channel_id
+        font_size: sp(18)
+
+    LineLabel:
+        text: root.name
+        font_size: sp(16)
+        bold: True
+        color: TEXT
+
+    PillButton:
+        text: "Retirer"
+        fill: SURFACE
+        font_size: sp(14)
+        size_hint: None, None
+        size: max(dp(84), self.texture_size[0] + dp(24)), dp(36)
+        pos_hint: {"center_y": 0.5}
+        on_release: app.remove_favorite(root.channel_id)
+
+# Une playlist de l'onglet Playlists : nom, nombre de vidéos, bouton pour la supprimer.
+<PlaylistRow>:
+    size_hint_y: None
+    height: max(dp(72), (sp(16) + sp(13)) * 1.2 + dp(24))
+    padding: dp(16), dp(10), dp(4), dp(10)
+    spacing: dp(14)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Icon:
+        text: ICONS["playlists"]
+        size_hint_x: None
+        width: self.height
+        canvas.before:
+            Color:
+                rgba: SURFACE
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(8)]
+
+    BoxLayout:
+        orientation: "vertical"
+
+        LineLabel:
+            text: root.name
+            font_size: sp(16)
+            bold: True
+            color: TEXT
+
+        LineLabel:
+            text: root.info
+            font_size: sp(13)
+            color: MUTED
+
+    IconButton:
+        text: ICONS["delete"]
+        pos_hint: {"center_y": 0.5}
+        on_release: app.confirm_delete_playlist(root.playlist_id)
+
+# Case d'une playlist, sous la vidéo en cours : la vidéo y est-elle enregistrée ?
+<PlaylistToggle>:
+    size_hint_y: None
+    height: max(dp(48), sp(15) * 1.2 + dp(20))
+    spacing: dp(12)
+
+    Icon:
+        text: ICONS["checked"] if root.checked else ICONS["unchecked"]
+        color: ACCENT if root.checked else MUTED
+        size_hint_x: None
+        width: dp(32)
+
+    LineLabel:
+        text: root.name
+        font_size: sp(15)
+        color: TEXT
+
+# Ligne-bouton avec une icône, par exemple « + Nouvelle playlist ».
+<ActionRow@ButtonBehavior+BoxLayout>:
+    icon: ""
+    text: ""
+    size_hint_y: None
+    height: max(dp(48), sp(15) * 1.2 + dp(20))
+    spacing: dp(12)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else (0, 0, 0, 0)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Icon:
+        text: root.icon
+        color: ACCENT
+        size_hint_x: None
+        width: dp(32)
+
+    LineLabel:
+        text: root.text
+        font_size: sp(15)
+        color: TEXT
+
+# Sous la vidéo en cours : nouvelle playlist, et une case par playlist.
+<PlaylistSection>:
+    orientation: "vertical"
+    size_hint_y: None
+    height: self.minimum_height
+    spacing: dp(4)
+
+    # Le champ du nom s'ouvre en haut de la page de lecture, au-dessus du clavier.
+    ActionRow:
+        icon: ICONS["add"]
+        text: "Nouvelle playlist"
+        on_release: app.start_naming()
+
+    BoxLayout:
+        id: toggles
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
 
 # Titre d'une rubrique des paramètres.
 <SectionTitle@WrappedLabel>:
@@ -226,145 +510,405 @@
         font_size: sp(14)
         color: MUTED
 
-# Une chaîne de « Mes chaînes » : pastille avec son initiale, nom, bouton pour la retirer.
-<ChannelRow>:
+# Interrupteur : rouge quand il est activé.
+<Toggle@Widget>:
+    active: False
+    size_hint: None, None
+    size: dp(44), dp(24)
+    canvas:
+        Color:
+            rgba: ACCENT if self.active else RAISED
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+        Color:
+            rgba: TEXT
+        Ellipse:
+            pos: (self.right - self.height + dp(3)) if self.active else (self.x + dp(3)), self.y + dp(3)
+            size: self.height - dp(6), self.height - dp(6)
+
+# Réglage à activer ou non : intitulé, explication, interrupteur (toute la ligne est un bouton).
+<SwitchRow@ButtonBehavior+BoxLayout>:
+    title: ""
+    detail: ""
+    active: False
     size_hint_y: None
-    height: dp(68)
-    padding: dp(16), dp(10), dp(12), dp(10)
-    spacing: dp(14)
+    height: texts.height + dp(20)
+    padding: dp(16), dp(10)
+    spacing: dp(16)
+
+    BoxLayout:
+        id: texts
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
+        pos_hint: {"center_y": 0.5}
+        spacing: dp(2)
+
+        WrappedLabel:
+            text: root.title
+            font_size: sp(16)
+            color: TEXT
+
+        WrappedLabel:
+            text: root.detail
+            font_size: sp(13)
+            color: MUTED
+
+    Toggle:
+        active: root.active
+        pos_hint: {"center_y": 0.5}
+
+# Barre « Reprendre » : la dernière vidéo commencée, reprise d'un appui.
+<ResumeBar@ButtonBehavior+BoxLayout>:
+    padding: dp(12), 0, dp(4), 0
+    spacing: dp(10)
     canvas.before:
         Color:
-            rgba: SURFACE if self.state == "down" else BG
+            rgba: RAISED if self.state == "down" else SURFACE
         Rectangle:
             pos: self.pos
             size: self.size
 
-    Label:
-        text: root.name[:1].upper()
-        font_size: sp(18)
-        bold: True
-        color: TEXT
-        size_hint_x: None
-        width: self.height
-        canvas.before:
-            Color:
-                rgba: AVATARS[sum(map(ord, root.channel_id)) % len(AVATARS)]
-            Ellipse:
-                pos: self.pos
-                size: self.size
-
-    LineLabel:
-        text: root.name
-        font_size: sp(16)
-        bold: True
-        color: TEXT
-
-    PillButton:
-        text: "Retirer"
-        fill: SURFACE
-        font_size: sp(14)
-        size_hint: None, None
-        size: max(dp(84), self.texture_size[0] + dp(24)), dp(36)
-        pos_hint: {"center_y": 0.5}
-        on_release: app.remove_favorite(root.channel_id)
-
-BoxLayout:
-    orientation: "vertical"
-
-    WrappedLabel:
-        text: "Aske"
-        font_size: sp(24)
-        bold: True
+    Icon:
+        text: ICONS["play"]
         color: ACCENT
-        padding: dp(16), dp(12), dp(16), dp(4)
+        size_hint_x: None
+        width: dp(32)
 
-    ScreenManager:
-        id: screens
-        transition: NoTransition()
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, dp(8)
 
-        Screen:
-            name: "videos"
+        LineLabel:
+            text: app.resume_title
+            font_size: sp(14)
+            bold: True
+            color: TEXT
 
+        LineLabel:
+            text: app.resume_meta
+            font_size: sp(12)
+            color: MUTED
+
+    IconButton:
+        text: ICONS["close"]
+        pos_hint: {"center_y": 0.5}
+        on_release: app.dismiss_resume()
+
+<ConfirmDialog>:
+    size_hint: 0.86, None
+    height: box.height
+    background: ""
+    background_color: SURFACE
+    overlay_color: 0, 0, 0, 0.6
+
+    BoxLayout:
+        id: box
+        orientation: "vertical"
+        size_hint_y: None
+        height: self.minimum_height
+        padding: dp(20)
+        spacing: dp(18)
+
+        WrappedLabel:
+            text: root.message
+            font_size: sp(16)
+            color: TEXT
+
+        BoxLayout:
+            size_hint_y: None
+            height: PILL_HEIGHT
+            spacing: dp(10)
+
+            Widget:
+
+            SmallPill:
+                text: "Annuler"
+                fill: RAISED
+                on_release: root.dismiss()
+
+            SmallPill:
+                text: root.action
+                fill: ACCENT
+                on_release: root.confirm()
+
+ScreenManager:
+    transition: NoTransition()
+
+    Screen:
+        name: "main"
+
+        BoxLayout:
+            orientation: "vertical"
+
+            # En-tête : nom de l'application, et accès aux Paramètres
             BoxLayout:
-                orientation: "vertical"
+                size_hint_y: None
+                height: max(dp(56), sp(24) * 1.2 + dp(16))
+                padding: dp(16), 0, dp(6), 0
 
-                # Recherche de vidéos, ou d'une chaîne
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(68)
-                    padding: dp(16), dp(10)
-                    spacing: dp(8)
+                LineLabel:
+                    text: "Aske"
+                    font_size: sp(24)
+                    bold: True
+                    color: ACCENT
 
-                    # Fond arrondi dessiné par le parent : le curseur et le texte du champ restent visibles.
+                IconButton:
+                    text: ICONS["settings"]
+                    color: TEXT if app.tab == "parametres" or self.state == "down" else MUTED
+                    pos_hint: {"center_y": 0.5}
+                    on_release: app.open_settings()
+
+            ScreenManager:
+                id: screens
+                transition: NoTransition()
+
+                Screen:
+                    name: "videos"
+
                     BoxLayout:
-                        canvas.before:
-                            Color:
-                                rgba: SURFACE
-                            RoundedRectangle:
-                                pos: self.pos
-                                size: self.size
-                                radius: [self.height / 2]
+                        orientation: "vertical"
 
-                        TextInput:
-                            id: query
-                            hint_text: "Rechercher, ou @chaîne"
-                            multiline: False
-                            write_tab: False
-                            font_size: sp(15)
-                            padding: dp(18), (self.height - self.line_height) / 2
-                            background_normal: ""
-                            background_active: ""
-                            background_color: 0, 0, 0, 0
-                            foreground_color: TEXT
-                            hint_text_color: MUTED
-                            cursor_color: ACCENT
-                            on_text_validate: app.load(self.text)
+                        # Recherche de vidéos, ou d'une chaîne
+                        BoxLayout:
+                            size_hint_y: None
+                            height: dp(68)
+                            padding: dp(16), dp(10)
+                            spacing: dp(8)
 
-                    PillButton:
-                        text: "OK"
-                        size_hint_x: None
-                        width: max(dp(64), self.texture_size[0] + dp(28))
-                        on_release:
-                            query.focus = False
-                            app.load(query.text)
+                            FieldBox:
+                                Field:
+                                    id: query
+                                    hint_text: "Rechercher, ou @chaîne"
+                                    on_text_validate: app.load(self.text)
 
-                # Chargement ou message d'erreur
-                WrappedLabel:
-                    text: app.status
-                    color: MUTED
-                    font_size: sp(14)
-                    halign: "center"
-                    padding: dp(24), dp(12)
-                    height: self.texture_size[1] if self.text else 0
+                            PillButton:
+                                text: "OK"
+                                size_hint_x: None
+                                width: max(dp(64), self.texture_size[0] + dp(28))
+                                on_release:
+                                    query.focus = False
+                                    app.load(query.text)
 
-                ScreenManager:
-                    id: views
-                    transition: NoTransition()
+                        # Chargement ou message d'erreur
+                        WrappedLabel:
+                            text: app.status
+                            color: MUTED
+                            font_size: sp(14)
+                            halign: "center"
+                            padding: dp(24), dp(12)
+                            height: self.texture_size[1] if self.text else 0
 
-                    # Les 10 dernières vidéos d'une chaîne
-                    Screen:
-                        name: "chaine"
+                        ScreenManager:
+                            id: views
+                            transition: NoTransition()
+
+                            # Les 10 dernières vidéos d'une chaîne
+                            Screen:
+                                name: "chaine"
+
+                                ScrollView:
+                                    id: scroll
+                                    do_scroll_x: False
+                                    bar_width: dp(4)
+
+                                    BoxLayout:
+                                        id: videos
+                                        orientation: "vertical"
+                                        size_hint_y: None
+                                        height: self.minimum_height
+                                        spacing: dp(8)
+                                        padding: 0, 0, 0, dp(24)
+
+                            # Les vidéos trouvées par une recherche
+                            Screen:
+                                name: "resultats"
+
+                                ResultList:
+                                    id: results
+                                    viewclass: "VideoRow"
+                                    do_scroll_x: False
+                                    bar_width: dp(4)
+
+                                    RecycleBoxLayout:
+                                        orientation: "vertical"
+                                        default_size: None, RESULT_HEIGHT
+                                        default_size_hint: 1, None
+                                        size_hint_y: None
+                                        height: self.minimum_height
+                                        padding: 0, 0, 0, dp(24)
+
+                Screen:
+                    name: "chaines"
+
+                    BoxLayout:
+                        orientation: "vertical"
+
+                        WrappedLabel:
+                            text: "" if app.favorite_count else "Aucune chaîne pour l'instant.\nOuvrez une chaîne (tapez son @nom, ou touchez son nom sous une vidéo), puis appuyez sur «\u00a0S'abonner\u00a0»."
+                            color: MUTED
+                            font_size: sp(14)
+                            halign: "center"
+                            padding: dp(24), dp(16)
+                            height: self.texture_size[1] if self.text else 0
 
                         ScrollView:
-                            id: scroll
                             do_scroll_x: False
                             bar_width: dp(4)
 
                             BoxLayout:
-                                id: videos
+                                id: favorites
                                 orientation: "vertical"
                                 size_hint_y: None
                                 height: self.minimum_height
-                                spacing: dp(8)
-                                padding: 0, 0, 0, dp(24)
+                                padding: 0, dp(4), 0, dp(24)
 
-                    # Les vidéos trouvées par une recherche
-                    Screen:
-                        name: "resultats"
+                Screen:
+                    name: "playlists"
+
+                    ScreenManager:
+                        id: playlist_views
+                        transition: NoTransition()
+
+                        # Les playlists, et la création d'une nouvelle
+                        Screen:
+                            name: "listes"
+
+                            BoxLayout:
+                                orientation: "vertical"
+
+                                BoxLayout:
+                                    size_hint_y: None
+                                    height: dp(68)
+                                    padding: dp(16), dp(10)
+                                    spacing: dp(8)
+
+                                    FieldBox:
+                                        Field:
+                                            id: new_playlist
+                                            hint_text: "Nouvelle playlist"
+                                            on_text_validate: app.create_playlist(self)
+
+                                    PillButton:
+                                        text: "Créer"
+                                        size_hint_x: None
+                                        width: max(dp(72), self.texture_size[0] + dp(28))
+                                        on_release: app.create_playlist(new_playlist)
+
+                                WrappedLabel:
+                                    text: "" if app.playlist_count else "Aucune playlist pour l'instant.\nCréez-en une ci-dessus, ou appuyez sur «\u00a0Playlist\u00a0» sous une vidéo en cours de lecture."
+                                    color: MUTED
+                                    font_size: sp(14)
+                                    halign: "center"
+                                    padding: dp(24), dp(16)
+                                    height: self.texture_size[1] if self.text else 0
+
+                                ScrollView:
+                                    do_scroll_x: False
+                                    bar_width: dp(4)
+
+                                    BoxLayout:
+                                        id: playlist_rows
+                                        orientation: "vertical"
+                                        size_hint_y: None
+                                        height: self.minimum_height
+                                        padding: 0, dp(4), 0, dp(24)
+
+                        # Une playlist ouverte : ses vidéos, lues à la suite avec « Tout lire »
+                        Screen:
+                            name: "contenu"
+
+                            BoxLayout:
+                                orientation: "vertical"
+
+                                BoxLayout:
+                                    size_hint_y: None
+                                    height: max(dp(64), (sp(20) + sp(13)) * 1.2 + dp(20))
+                                    padding: dp(16), dp(8), dp(12), dp(8)
+                                    spacing: dp(10)
+
+                                    BoxLayout:
+                                        orientation: "vertical"
+
+                                        LineLabel:
+                                            text: app.playlist_name
+                                            font_size: sp(20)
+                                            bold: True
+                                            color: TEXT
+
+                                        LineLabel:
+                                            text: app.playlist_info
+                                            font_size: sp(13)
+                                            color: MUTED
+
+                                    PillButton:
+                                        text: "[font=%s]%s[/font] Tout lire" % (ICON_FONT, ICONS["play"])
+                                        font_size: sp(14)
+                                        opacity: 0 if app.playlist_info.startswith("0 ") else 1
+                                        disabled: app.playlist_info.startswith("0 ")
+                                        size_hint: None, None
+                                        size: self.texture_size[0] + dp(28), PILL_HEIGHT
+                                        pos_hint: {"center_y": 0.5}
+                                        on_release: app.play_playlist()
+
+                                WrappedLabel:
+                                    text: "Cette playlist est vide.\nOuvrez une vidéo, puis appuyez sur «\u00a0Playlist\u00a0» sous le lecteur pour l'y enregistrer." if app.playlist_info.startswith("0 ") else ""
+                                    color: MUTED
+                                    font_size: sp(14)
+                                    halign: "center"
+                                    padding: dp(24), dp(16)
+                                    height: self.texture_size[1] if self.text else 0
+
+                                ResultList:
+                                    id: playlist_list
+                                    viewclass: "VideoRow"
+                                    do_scroll_x: False
+                                    bar_width: dp(4)
+
+                                    RecycleBoxLayout:
+                                        orientation: "vertical"
+                                        default_size: None, RESULT_HEIGHT
+                                        default_size_hint: 1, None
+                                        size_hint_y: None
+                                        height: self.minimum_height
+                                        padding: 0, 0, 0, dp(24)
+
+                Screen:
+                    name: "historique"
+
+                    BoxLayout:
+                        orientation: "vertical"
+
+                        BoxLayout:
+                            size_hint_y: None
+                            height: PILL_HEIGHT + dp(16) if app.history_count else 0
+                            opacity: 1 if app.history_count else 0
+                            disabled: not app.history_count
+                            padding: dp(16), dp(8), dp(12), dp(8)
+
+                            LineLabel:
+                                text: "%d vidéo%s" % (app.history_count, "s" if app.history_count > 1 else "")
+                                font_size: sp(14)
+                                color: MUTED
+
+                            SmallPill:
+                                text: "[font=%s]%s[/font] Effacer" % (ICON_FONT, ICONS["clear"])
+                                size_hint_y: 1
+                                on_release: app.confirm_clear_history()
+
+                        WrappedLabel:
+                            text: "" if app.history_count else "Aucune vidéo regardée pour l'instant.\nLes vidéos que vous ouvrez s'affichent ici, avec l'endroit où vous vous êtes arrêté."
+                            color: MUTED
+                            font_size: sp(14)
+                            halign: "center"
+                            padding: dp(24), dp(16)
+                            height: self.texture_size[1] if self.text else 0
 
                         ResultList:
-                            id: results
-                            viewclass: "SearchResult"
+                            id: history_list
+                            viewclass: "VideoRow"
                             do_scroll_x: False
                             bar_width: dp(4)
 
@@ -376,72 +920,299 @@ BoxLayout:
                                 height: self.minimum_height
                                 padding: 0, 0, 0, dp(24)
 
-        Screen:
-            name: "chaines"
-
-            BoxLayout:
-                orientation: "vertical"
-
-                WrappedLabel:
-                    text: "" if app.favorite_count else "Aucune chaîne pour l'instant.\nAffichez une chaîne dans l'onglet Vidéos, puis appuyez sur «\u00a0+\u00a0Ajouter\u00a0»."
-                    color: MUTED
-                    font_size: sp(14)
-                    halign: "center"
-                    padding: dp(24), dp(16)
-                    height: self.texture_size[1] if self.text else 0
-
-                ScrollView:
-                    do_scroll_x: False
-                    bar_width: dp(4)
+                Screen:
+                    name: "telecharges"
 
                     BoxLayout:
-                        id: favorites
+                        orientation: "vertical"
+
+                        WrappedLabel:
+                            text: app.downloads_summary or "Aucun téléchargement pour l'instant.\nOuvrez une vidéo, puis appuyez sur «\u00a0Vidéo\u00a0» ou «\u00a0Son\u00a0» sous le lecteur\u00a0: elle restera sur le téléphone, lisible sans connexion."
+                            color: MUTED
+                            font_size: sp(14)
+                            halign: "left" if app.downloads_summary else "center"
+                            padding: dp(16), dp(12)
+
+                        ResultList:
+                            id: downloads_list
+                            viewclass: "VideoRow"
+                            do_scroll_x: False
+                            bar_width: dp(4)
+
+                            RecycleBoxLayout:
+                                orientation: "vertical"
+                                default_size: None, RESULT_HEIGHT
+                                default_size_hint: 1, None
+                                size_hint_y: None
+                                height: self.minimum_height
+                                padding: 0, 0, 0, dp(24)
+
+                Screen:
+                    name: "parametres"
+
+                    ScrollView:
+                        do_scroll_x: False
+
+                        BoxLayout:
+                            orientation: "vertical"
+                            size_hint_y: None
+                            height: self.minimum_height
+                            padding: 0, 0, 0, dp(24)
+
+                            SectionTitle:
+                                text: "Lecture"
+
+                            SwitchRow:
+                                title: "Lecture automatique"
+                                detail: "Dans une playlist ou sur une chaîne («\u00a0Tout lire\u00a0»), la vidéo suivante démarre à la fin de la précédente."
+                                active: app.autoplay
+                                on_release: app.toggle_autoplay()
+
+                            SectionTitle:
+                                text: "À propos"
+
+                            SettingRow:
+                                title: "Créateur"
+                                value: "Onthesignal"
+
+                            SettingRow:
+                                title: "Version"
+                                value: app.version
+
+            # Dernière vidéo commencée, reprise d'un appui
+            ResumeBar:
+                size_hint_y: None
+                height: max(dp(56), (sp(14) + sp(12)) * 1.2 + dp(20)) if app.resume_title else 0
+                opacity: 1 if app.resume_title else 0
+                disabled: not app.resume_title
+                on_release: app.resume_last()
+
+            # Barre d'onglets
+            BoxLayout:
+                size_hint_y: None
+                height: dp(64)
+                canvas.before:
+                    Color:
+                        rgba: BAR
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                TabButton:
+                    icon: ICONS["search"]
+                    text: "Vidéos"
+                    active: app.tab == "videos"
+                    on_release: app.tab = "videos"
+
+                TabButton:
+                    icon: ICONS["subscriptions"]
+                    text: "Chaînes"
+                    active: app.tab == "chaines"
+                    on_release: app.tab = "chaines"
+
+                TabButton:
+                    icon: ICONS["playlists"]
+                    text: "Playlists"
+                    active: app.tab == "playlists"
+                    on_release: app.tab = "playlists"
+
+                TabButton:
+                    icon: ICONS["history"]
+                    text: "Historique"
+                    active: app.tab == "historique"
+                    on_release: app.tab = "historique"
+
+                TabButton:
+                    icon: ICONS["download"]
+                    text: "Téléchargés"
+                    active: app.tab == "telecharges"
+                    on_release: app.tab = "telecharges"
+
+    # Page de lecture : la vidéo en haut, et dessous sa chaîne, son téléchargement, ses playlists
+    Screen:
+        name: "lecture"
+
+        BoxLayout:
+            orientation: "vertical"
+
+            # Emplacement de la vidéo : le lecteur d'Android (WebView) s'affiche par-dessus.
+            FloatLayout:
+                size_hint_y: None
+                height: self.width * 9 / 16
+                canvas.before:
+                    Color:
+                        rgba: 0, 0, 0, 1
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+
+                # Sur ordinateur, la vidéo s'ouvre dans le navigateur : on montre sa miniature.
+                AsyncImage:
+                    source: "" if app.on_android else app.watch_thumbnail
+                    fit_mode: "contain"
+                    pos_hint: {"x": 0, "y": 0}
+
+            ScrollView:
+                id: watch_scroll
+                do_scroll_x: False
+                bar_width: dp(4)
+
+                # Les deux premières lignes, souvent cachées, portent leur propre marge : cachées,
+                # elles ne laissent pas d'espace vide sous la vidéo.
+                BoxLayout:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(16), dp(14), dp(16), dp(24)
+
+                    # Nom d'une nouvelle playlist : tout en haut, pour rester visible au-dessus
+                    # du clavier d'Android (voir app.start_naming)
+                    BoxLayout:
+                        size_hint_y: None
+                        height: PILL_HEIGHT + dp(12) if app.naming_playlist else 0
+                        padding: 0, 0, 0, dp(12)
+                        opacity: 1 if app.naming_playlist else 0
+                        disabled: not app.naming_playlist
+                        spacing: dp(8)
+
+                        FieldBox:
+                            Field:
+                                id: playlist_name
+                                hint_text: "Nom de la playlist"
+                                on_text_validate: app.create_playlist(self, True)
+
+                        PillButton:
+                            text: "Créer"
+                            font_size: sp(14)
+                            size_hint_x: None
+                            width: max(dp(72), self.texture_size[0] + dp(28))
+                            on_release: app.create_playlist(playlist_name, True)
+
+                    # Playlist en cours : position dans la playlist, et vidéo suivante
+                    BoxLayout:
+                        size_hint_y: None
+                        height: PILL_HEIGHT + dp(12) if app.watch_queue else 0
+                        padding: 0, 0, 0, dp(12)
+                        opacity: 1 if app.watch_queue else 0
+                        disabled: not app.watch_queue
+                        spacing: dp(8)
+
+                        LineLabel:
+                            text: app.watch_queue
+                            font_size: sp(13)
+                            bold: True
+                            color: ACCENT
+
+                        SmallPill:
+                            text: "[font=%s]%s[/font] Suivante" % (ICON_FONT, ICONS["next"])
+                            opacity: 1 if app.watch_has_next else 0
+                            disabled: not app.watch_has_next
+                            size_hint_y: 1
+                            # Sans vidéo suivante, le bouton disparaît et laisse la place au texte.
+                            width: (self.texture_size[0] + dp(28)) if app.watch_has_next else 0
+                            on_release: app.next_video()
+
+                    BoxLayout:
                         orientation: "vertical"
                         size_hint_y: None
                         height: self.minimum_height
-                        padding: 0, dp(4), 0, dp(24)
+                        spacing: dp(12)
 
-        Screen:
-            name: "parametres"
+                        WrappedLabel:
+                            text: app.watch_title
+                            font_size: sp(17)
+                            bold: True
+                            color: TEXT
 
-            BoxLayout:
-                orientation: "vertical"
+                        WrappedLabel:
+                            text: app.watch_meta
+                            font_size: sp(13)
+                            color: MUTED
+                            height: self.texture_size[1] if self.text else 0
 
-                SectionTitle:
-                    text: "À propos"
+                        # Chaîne de la vidéo : un appui l'affiche, « S'abonner » l'ajoute à Mes chaînes
+                        BoxLayout:
+                            size_hint_y: None
+                            height: max(dp(56), sp(16) * 1.2 + dp(24)) if app.watch_channel_id else 0
+                            opacity: 1 if app.watch_channel_id else 0
+                            disabled: not app.watch_channel_id
+                            spacing: dp(10)
 
-                SettingRow:
-                    title: "Créateur"
-                    value: "Onthesignal"
+                            ChannelButton:
+                                spacing: dp(10)
+                                on_release: app.open_watch_channel()
 
-                SettingRow:
-                    title: "Version"
-                    value: app.version
+                                Avatar:
+                                    name: app.watch_channel
+                                    channel_id: app.watch_channel_id
+                                    font_size: sp(16)
+                                    size_hint_y: None
+                                    height: dp(40)
+                                    pos_hint: {"center_y": 0.5}
 
-                Widget:
+                                LineLabel:
+                                    text: app.watch_channel
+                                    font_size: sp(16)
+                                    bold: True
+                                    color: TEXT
 
-    # Barre d'onglets
-    BoxLayout:
-        size_hint_y: None
-        height: dp(56)
-        canvas.before:
-            Color:
-                rgba: BAR
-            Rectangle:
-                pos: self.pos
-                size: self.size
+                                Icon:
+                                    text: ICONS["chevron"]
+                                    color: MUTED
+                                    size_hint_x: None
+                                    width: dp(24)
 
-        TabButton:
-            text: "Vidéos"
-            active: app.tab == "videos"
-            on_release: app.tab = "videos"
+                            PillButton:
+                                text: "Abonné" if app.watch_subscribed else "S'abonner"
+                                fill: SURFACE if app.watch_subscribed else ACCENT
+                                font_size: sp(14)
+                                size_hint: None, None
+                                size: max(dp(108), self.texture_size[0] + dp(28)), PILL_HEIGHT
+                                pos_hint: {"center_y": 0.5}
+                                on_release: app.toggle_watch_subscription()
 
-        TabButton:
-            text: "Mes chaînes"
-            active: app.tab == "chaines"
-            on_release: app.tab = "chaines"
+                        # Enregistrer dans une playlist, télécharger (vidéo ou son seul). « Playlist » en
+                        # premier : les boutons de téléchargement cachés (taille nulle) viennent après.
+                        StackLayout:
+                            size_hint_y: None
+                            height: self.minimum_height
+                            spacing: dp(8)
 
-        TabButton:
-            text: "Paramètres"
-            active: app.tab == "parametres"
-            on_release: app.tab = "parametres"
+                            SmallPill:
+                                text: "[font=%s]%s[/font] Playlist" % (ICON_FONT, ICONS["playlist_add"])
+                                fill: RAISED if app.watch_playlists_open else SURFACE
+                                on_release: app.toggle_playlists_section()
+
+                            SmallPill:
+                                text: "[font=%s]%s[/font] Vidéo" % (ICON_FONT, ICONS["download"])
+                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download else (0, 0)
+                                opacity: 1 if app.can_download else 0
+                                disabled: not app.can_download
+                                on_release: app.download("video")
+
+                            SmallPill:
+                                text: "[font=%s]%s[/font] Son" % (ICON_FONT, ICONS["download"])
+                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download else (0, 0)
+                                opacity: 1 if app.can_download else 0
+                                disabled: not app.can_download
+                                on_release: app.download("audio")
+
+                        # État du téléchargement de la vidéo
+                        WrappedLabel:
+                            text: ("[font=%s]%s[/font]  " % (ICON_FONT, app.watch_download_icon) + app.watch_download) if app.watch_download else ""
+                            markup: True
+                            font_size: sp(13)
+                            color: MUTED
+                            height: self.texture_size[1] if self.text else 0
+
+                        # Section « Enregistrer dans une playlist », ajoutée ici quand on l'ouvre
+                        BoxLayout:
+                            id: playlist_section
+                            orientation: "vertical"
+                            size_hint_y: None
+                            height: self.minimum_height
+
+                        WrappedLabel:
+                            text: app.watch_description
+                            font_size: sp(13)
+                            color: MUTED

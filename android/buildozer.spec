@@ -10,11 +10,13 @@ version.regex = __version__ = ['"](.*)['"]
 version.filename = %(source.dir)s/main.py
 
 source.dir = .
-source.include_exts = py,kv,png
+source.include_exts = py,kv,png,ttf
 source.exclude_dirs = bin, java
 
 # certifi : certificats racine pour les connexions HTTPS
-requirements = python3,kivy,certifi
+# yt-dlp : téléchargements hors ligne (version figée : YouTube change souvent, une nouvelle
+# version de yt-dlp demandera de recompiler l'APK)
+requirements = python3,kivy,certifi,yt-dlp==2026.8.19
 
 icon.filename = %(source.dir)s/images/icon.png
 icon.adaptive_foreground.filename = %(source.dir)s/images/icon_fg.png
@@ -25,12 +27,13 @@ android.presplash_color = #0f0f0f
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, FOREGROUND_SERVICE_MEDIA_PLAYBACK
+android.permissions = INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, FOREGROUND_SERVICE_MEDIA_PLAYBACK, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS
 
-# Service qui garde la lecture active écran éteint (java/fr/perso/freetube/MediaService.java).
-# Il tourne dans le processus de l'application, là où se trouve le lecteur.
+# Services qui gardent Aske active écran éteint, pendant la lecture (MediaService) et les
+# téléchargements (DownloadService) : voir java/fr/perso/freetube/. Ils tournent dans le
+# processus de l'application, là où se trouvent le lecteur et les téléchargements.
 android.add_src = java
-p4a.extra_args = --extra-manifest-application-xml='<service android:name="fr.perso.freetube.MediaService" android:foregroundServiceType="mediaPlayback" android:exported="false" android:stopWithTask="true" />'
+p4a.extra_args = --extra-manifest-application-xml='<service android:name="fr.perso.freetube.MediaService" android:foregroundServiceType="mediaPlayback" android:exported="false" android:stopWithTask="true" /><service android:name="fr.perso.freetube.DownloadService" android:foregroundServiceType="dataSync" android:exported="false" android:stopWithTask="true" />'
 
 # Android 14 : viser Android 15 obligerait l'application à dessiner sous la barre d'état.
 android.api = 34

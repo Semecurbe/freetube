@@ -1,35 +1,79 @@
 # Aske
 
-Application Android écrite en Python avec [Kivy], pour regarder ou écouter des vidéos YouTube.
-Un appui sur une vidéo la lit directement dans l'application, en plein écran, via
-`yout-ube.com` : tournez le téléphone pour la regarder en paysage, et utilisez « retour » pour
-revenir à la liste.
+Application Android écrite en Python avec [Kivy], pour regarder ou écouter des vidéos YouTube
+via `yout-ube.com`, et les garder sur le téléphone.
 
-Le champ en haut de l'onglet Vidéos sert à deux choses :
+## Les onglets
 
-- **Rechercher des vidéos** : tapez des mots-clés, par exemple `livre audio`. Aske affiche les
-  100 premiers résultats de YouTube (miniature, durée, titre, chaîne, vues, date). Un appui sur
-  le nom de la chaîne, sous le titre, affiche les vidéos de cette chaîne ; « retour » ramène
-  aux résultats.
-- **Afficher une chaîne** : tapez son `@nom` (ou son adresse youtube.com, ou son ID `UC…`).
-  Aske affiche ses 10 dernières vidéos (miniature, titre, date, vues, description).
+- **Vidéos** : le champ du haut sert à deux choses.
+  - Des mots-clés (par exemple `livre audio`) : les 100 premiers résultats de YouTube
+    (miniature, durée, titre, chaîne, vues, date).
+  - Le `@nom` d'une chaîne (ou son adresse youtube.com, ou son ID `UC…`) : ses 10 dernières
+    vidéos. « Tout lire » les lit à la suite ; un appui sur une vidéo la lit, puis les suivantes.
+- **Chaînes** : les chaînes auxquelles vous êtes abonné (bouton « S'abonner », sur la page
+  d'une chaîne ou sous une vidéo).
+- **Playlists** : vos playlists, créées ici ou depuis une vidéo. « Tout lire » les lit à la
+  suite.
+- **Historique** : les vidéos regardées, avec l'endroit où vous vous êtes arrêté (barre rouge
+  sous la miniature).
+- **Téléchargés** : les vidéos gardées sur le téléphone, lisibles sans connexion.
 
-Et aussi :
+La roue dentée, en haut à droite, ouvre les **Paramètres** : lecture automatique, créateur et
+version.
 
-- **Mes chaînes** : le bouton « + Ajouter », à côté du nom de la chaîne affichée, l'enregistre
-  dans l'onglet « Mes chaînes ». Un appui sur une chaîne de cet onglet affiche ses vidéos.
-- **Écoute écran éteint** : éteignez l'écran pendant une vidéo, le son continue. Passer à une
-  autre application met la vidéo en pause ; elle reprend au retour dans Aske.
-- **Paramètres** : le créateur de l'application et sa version.
+## La page de lecture
 
-Pas de serveur ni de clé API : Aske lit le flux RSS public des chaînes, et interroge la
-recherche de YouTube comme le fait son site. À chaque ouverture, elle réaffiche la dernière
-chaîne ou la dernière recherche.
+Un appui sur une vidéo ouvre sa page de lecture : la vidéo en haut (en plein écran si vous
+tournez le téléphone), et dessous :
 
-Pendant la lecture, Android affiche une notification « Aske » : c'est elle qui permet de
-continuer écran éteint. Sur Android 13 et plus, elle n'apparaît que si les notifications
-d'Aske sont autorisées (*Paramètres → Applications → Aske → Notifications*) ; la lecture
-écran éteint fonctionne dans les deux cas.
+- **le nom de la chaîne** : un appui l'affiche, et « retour » ramène à la vidéo ;
+  « S'abonner » l'ajoute à l'onglet Chaînes ;
+- **Vidéo** ou **Son** : télécharge la vidéo entière, ou seulement le son (un livre audio de
+  8 heures fait environ 470 Mo) ;
+- **Playlist** : l'enregistre dans une ou plusieurs playlists (cochez-les), ou dans une
+  nouvelle (« + Nouvelle playlist »).
+
+« Retour » ferme la page de lecture.
+
+## Reprise et lecture enchaînée
+
+Aske retient l'endroit où vous vous êtes arrêté dans chaque vidéo, même si vous quittez
+l'application, et la reprend là (3 secondes plus tôt pour retrouver le fil). La barre
+« Reprendre », en bas de l'écran, relance la dernière vidéo commencée et pas terminée.
+
+Une vidéo s'arrête à la fin (yout-ube.com la ferait recommencer en boucle : Aske retire cette
+option, voir `java/…/PlayerClient.java`). Dans une playlist ou sur une chaîne (« Tout lire »),
+la vidéo suivante démarre alors toute seule, même écran éteint. Le réglage *Lecture
+automatique* (Paramètres) le désactive : le bouton « Suivante » passe à la vidéo suivante.
+
+## Écoute écran éteint
+
+Éteignez l'écran pendant une vidéo : le son continue. Passer à une autre application met la
+vidéo en pause ; elle reprend au retour dans Aske.
+
+Pendant la lecture et les téléchargements, Android affiche une notification « Aske » : c'est
+elle qui permet de continuer écran éteint, et elle montre l'avancement des téléchargements.
+Aske demande l'autorisation d'afficher des notifications au premier téléchargement ; si vous
+refusez, tout fonctionne quand même, sans notification (*Paramètres → Applications → Aske →
+Notifications* pour changer d'avis).
+
+## Téléchargements
+
+Ils se font en arrière-plan, écran éteint compris. Un téléchargement interrompu (Aske
+fermée) reprend au lancement suivant. Une vidéo déjà téléchargée est toujours lue depuis le
+téléphone, même avec une connexion.
+
+YouTube ne fournit plus de fichier contenant à la fois l'image (720p au plus) et le son : Aske
+télécharge les deux avec [yt-dlp], puis les assemble avec Android, sans perte de qualité. Les
+fichiers restent dans le stockage privé d'Aske et disparaissent si vous la désinstallez.
+
+yt-dlp suit les changements de YouTube : si les téléchargements cessent de fonctionner, mettez
+sa version à jour dans `buildozer.spec` (ligne `requirements`), puis recompilez l'APK.
+
+## Sans serveur ni clé d'API
+
+Aske lit le flux RSS public des chaînes et interroge la recherche de YouTube comme le fait
+son site. À chaque ouverture, elle réaffiche la dernière chaîne ou la dernière recherche.
 
 ## Installer sur le téléphone
 
@@ -39,7 +83,7 @@ d'Aske sont autorisées (*Paramètres → Applications → Aske → Notification
 3. Installez l'APK (`adb` a été téléchargé avec le SDK Android lors de la compilation) :
 
    ```bash
-   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.3-arm64-v8a-debug.apk
+   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.4-arm64-v8a-debug.apk
    ```
 
 Sans câble : copiez le fichier `.apk` sur le téléphone et ouvrez-le. Android demandera
@@ -70,8 +114,22 @@ Kivy fonctionne aussi sur ordinateur (il faut Python 3.13 au plus, Kivy 2.3 n'ex
 encore pour Python 3.14) :
 
 ```bash
-python3.13 -m venv .venv && .venv/bin/pip install kivy certifi
+python3.13 -m venv .venv && .venv/bin/pip install kivy certifi yt-dlp
 .venv/bin/python main.py
+```
+
+Sur PC, les vidéos s'ouvrent dans le navigateur, et le téléchargement de vidéos entières ne
+fonctionne pas (l'assemblage de l'image et du son passe par Android) ; celui du son, si.
+
+## Icônes
+
+`fonts/icons.ttf` est un extrait de la police [Material Icons] de Google (licence Apache 2.0),
+réduit aux icônes listées dans `icons.py`. Pour en ajouter une, cherchez son code dans
+`MaterialIcons-Regular.codepoints`, puis régénérez l'extrait avec
+[fonttools](https://pypi.org/project/fonttools/) :
+
+```bash
+pyftsubset MaterialIcons-Regular.ttf --unicodes=U+E8B6,U+E064,… --output-file=fonts/icons.ttf
 ```
 
 ## Libérer l'espace disque
@@ -85,3 +143,5 @@ docker rmi kivy/buildozer
 ```
 
 [Kivy]: https://kivy.org
+[yt-dlp]: https://github.com/yt-dlp/yt-dlp
+[Material Icons]: https://github.com/google/material-design-icons
