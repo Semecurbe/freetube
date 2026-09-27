@@ -13,14 +13,19 @@ ICONS = {
     "download":      "\uf090",  # onglet Téléchargés, boutons de téléchargement
     "downloaded":    "\uf091",  # vidéo téléchargée
     "settings":      "\ue8b8",  # Paramètres
-    "play":          "\ue037",  # barre « Reprendre »
-    "next":          "\ue044",  # vidéo suivante de la playlist
+    "play":          "\ue037",  # barre « Reprendre », écoute
+    "pause":         "\ue034",  # écoute
+    "next":          "\ue044",  # vidéo ou piste suivante
+    "previous":      "\ue045",  # piste précédente
+    "rewind":        "\ue059",  # reculer de 10 s
+    "forward":       "\ue057",  # avancer de 30 s
+    "collapse":      "\ue5cf",  # quitter l'écran d'écoute
     "close":         "\ue5cd",  # fermer, retirer d'une liste
     "delete":        "\ue872",  # supprimer un téléchargement, une playlist
     "clear":         "\ue16c",  # effacer l'historique
     "retry":         "\ue5d5",  # réessayer un téléchargement
     "error":         "\ue000",  # téléchargement échoué
-    "audio":         "\uf01f",  # téléchargement du son seul
+    "audio":         "\uf01f",  # écouter les MP3
     "video":         "\ue02c",  # téléchargement de la vidéo
     "chevron":       "\ue5cc",  # lien vers une chaîne, une playlist
     "playlist_add":  "\ue03b",  # enregistrer dans une playlist

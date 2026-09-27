@@ -1,7 +1,8 @@
-"""Aske : YouTube via yout-ube.com — chaînes, recherche, playlists, historique, téléchargements."""
+"""Aske : YouTube via yout-ube.com — chaînes, recherche, playlists, historique, téléchargements,
+et écoute des MP3 en arrière-plan."""
 
 # Lu aussi par Buildozer (version.regex dans buildozer.spec) : c'est la version de l'APK.
-__version__ = "1.4"
+__version__ = "1.5"
 
 import gzip
 import http.client
@@ -32,9 +33,11 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.modalview import ModalView
 from kivy.uix.recycleview import RecycleView
+from kivy.uix.widget import Widget
 from kivy.utils import get_color_from_hex, platform
 
-from downloads import DownloadManager, size_fr
+from audio import AudioPlayer
+from downloads import AUDIO_KINDS, DownloadManager, size_fr
 from history import History
 from icons import ICONS
 from playlists import Playlists
@@ -92,7 +95,7 @@ TIME_UNITS = [("an", 31_536_000), ("mois", 2_592_000), ("semaine", 604_800),
 # Pour l'historique, où la place manque : « il y a 15 min ».
 SHORT_UNITS = [("an", 31_536_000), ("mois", 2_592_000), ("sem.", 604_800),
                ("j", 86_400), ("h", 3_600), ("min", 60)]
-DOWNLOAD_KINDS = {"video": "Vidéo", "audio": "Son"}
+DOWNLOAD_KINDS = {"video": "Vidéo", "mp3": "MP3", "audio": "Son"}
 
 
 class YouTubeError(Exception):
@@ -313,7 +316,8 @@ def download_status(entry):
     if entry["status"] == "attente":
         return f"{kind} · en attente"
     if entry["status"] == "cours":
-        return f"Téléchargement {entry['progress']}\u00a0%"
+        step = " · conversion en MP3" if entry.get("step") == "conversion" else ""
+        return f"Téléchargement {entry['progress']}\u00a0%{step}"
     if entry["status"] == "echec":
         return f"Échec, touchez pour réessayer\u00a0: {entry['error']}"
     return f"{kind} · {size_fr(entry['size'])}"
@@ -411,6 +415,54 @@ class PlaylistSection(BoxLayout):
     """Sous la vidéo en cours : nouvelle playlist, et une case par playlist (PlaylistToggle)."""
 
 
+class QueueRow(ButtonBehavior, BoxLayout):
+    """Une piste de l'écran d'écoute : un appui la lance."""
+
+    index = NumericProperty(0)
+    title = StringProperty()
+    channel = StringProperty()
+    current = BooleanProperty(False)  # piste en cours
+
+    def on_release(self):
+        App.get_running_app().audio.jump(self.index)
+
+
+class SeekBar(Widget):
+    """Barre de l'écran d'écoute : un appui, ou un glissement du doigt, déplace la lecture.
+
+    value : part de la piste déjà écoutée, de 0 à 1.
+    """
+
+    value = NumericProperty(0)
+    dragging = BooleanProperty(False)  # doigt posé : les relevés du lecteur ne la bougent plus
+
+    def on_touch_down(self, touch):
+        if self.disabled or not self.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        touch.grab(self)
+        self.dragging = True
+        self._follow(touch)
+        return True
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is not self:
+            return super().on_touch_move(touch)
+        self._follow(touch)
+        return True
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is not self:
+            return super().on_touch_up(touch)
+        touch.ungrab(self)
+        self._follow(touch)
+        self.dragging = False
+        App.get_running_app().audio_seek(self.value)
+        return True
+
+    def _follow(self, touch):
+        self.value = min(1, max(0, (touch.x - self.x) / self.width)) if self.width else 0
+
+
 class ChannelHeader(BoxLayout):
     """Nom de la chaîne affichée, avec le bouton pour s'y abonner (« Mes chaînes »)."""
 
@@ -429,10 +481,12 @@ class ChannelRow(ButtonBehavior, BoxLayout):
 
 
 class ConfirmDialog(ModalView):
-    """Demande de confirmation avant une action qu'on ne peut pas annuler."""
+    """Demande de confirmation avant une action qu'on ne peut pas annuler (ou simple message,
+    sans bouton « Annuler », si cancel est vide)."""
 
     message = StringProperty()
     action = StringProperty()
+    cancel = StringProperty("Annuler")
 
     def __init__(self, on_confirm, **kwargs):
         super().__init__(**kwargs)
@@ -463,6 +517,7 @@ class AskeApp(App):
     watch_download = StringProperty()  # état de son téléchargement ("" : pas téléchargée)
     watch_download_icon = StringProperty()
     can_download = BooleanProperty(False)  # ni téléchargée, ni en direct
+    watch_can_listen = BooleanProperty(False)  # téléchargée en MP3 : bouton « Écouter »
     # Barre « Reprendre » : dernière vidéo commencée ("" : barre cachée).
     resume_title = StringProperty()
     resume_meta = StringProperty()
@@ -473,12 +528,28 @@ class AskeApp(App):
     watch_has_next = BooleanProperty(False)
     watch_playlists_open = BooleanProperty(False)  # section « Enregistrer dans une playlist »
     naming_playlist = BooleanProperty(False)  # champ du nom d'une nouvelle playlist, en haut
-    # Onglet Playlists : nombre de playlists, et playlist ouverte.
+    # Onglet Playlists : nombre de playlists, et playlist ouverte (nombre de vidéos, de MP3
+    # prêts, et de vidéos encore à télécharger en MP3).
     playlist_count = NumericProperty(0)
     playlist_name = StringProperty()
     playlist_info = StringProperty()
-    # Paramètres : enchaîner les vidéos d'une playlist.
+    playlist_size = NumericProperty(0)
+    playlist_mp3 = NumericProperty(0)
+    playlist_missing = NumericProperty(0)
+    # Paramètres : enchaîner les vidéos d'une playlist ; MP3 à 192 kbit/s au lieu de 128.
     autoplay = BooleanProperty(True)
+    mp3_high_quality = BooleanProperty(False)
+    # Écoute des MP3 : mini-lecteur en bas de l'écran, et écran d'écoute.
+    audio_active = BooleanProperty(False)
+    audio_playing = BooleanProperty(False)
+    audio_title = StringProperty()
+    audio_channel = StringProperty()
+    audio_thumbnail = StringProperty()
+    audio_label = StringProperty()  # « Playlist « X » · 2 sur 5 »
+    audio_elapsed = StringProperty("0:00")
+    audio_total = StringProperty()
+    audio_progress = NumericProperty(0)  # part de la piste déjà écoutée
+    audio_has_next = BooleanProperty(False)
 
     def build(self):
         Window.clearcolor = get_color_from_hex("#0f0f0f")
@@ -498,6 +569,15 @@ class AskeApp(App):
         self.playlists = Playlists(os.path.join(self.user_data_dir, "playlists.json"))
         self.open_playlist_id = None
         self.autoplay = self.store.get("lecture")["auto"] if self.store.exists("lecture") else True
+        self.mp3_high_quality = self.store.exists("mp3") and self.store.get("mp3")["haute_qualite"]
+        self.downloads.mp3_bitrate = 192 if self.mp3_high_quality else 128
+        # Écoute des MP3 : dernier relevé du lecteur (voir _audio_state), piste en cours, et
+        # liste dont les pistes sont affichées dans l'écran d'écoute.
+        self.audio = AudioPlayer(self._audio_state)
+        self.audio_state = None
+        self.audio_video = {}
+        self.audio_rows_queue = None
+        self._audio_changed = Clock.create_trigger(self._show_audio_state)
         # Chaîne ou recherche attendue à l'écran : les réponses arrivées trop tard sont ignorées.
         self.pending = None
         # Numéro de la recherche en cours : ses pages suivantes s'ajoutent à la liste.
@@ -539,11 +619,13 @@ class AskeApp(App):
         return self.go_back() if key == 27 else False
 
     def go_back(self):
-        """Ferme la page de lecture, puis les Paramètres, revient à l'onglet Vidéos, puis à ce
-        qu'on a quitté en ouvrant une chaîne ; renvoie False quand il n'y a plus rien à fermer
-        (Android quitte alors l'application)."""
+        """Ferme la page de lecture ou d'écoute, puis les Paramètres, revient à l'onglet Vidéos,
+        puis à ce qu'on a quitté en ouvrant une chaîne ; renvoie False quand il n'y a plus rien
+        à fermer (Android quitte alors l'application)."""
         if self.naming_playlist:
             self.naming_playlist = False
+        elif self.root.current == "ecoute":
+            self.close_listening()
         elif self.watching:
             self.close_watch()
         elif self.tab == "parametres":
@@ -629,6 +711,8 @@ class AskeApp(App):
         """Ouvre la page de lecture d'une vidéo, reprise là où elle s'était arrêtée (la version
         téléchargée en priorité). queue : vidéos à lire à la suite (playlist ou chaîne)."""
         video = dict(video)
+        if self.audio_active:
+            self.audio.pause()  # un seul son à la fois
         with self.watch_lock:
             self.queue = queue
             self.watch_open = True
@@ -638,7 +722,7 @@ class AskeApp(App):
     def _play(self, video):
         """Lance la lecture ; appelée par Kivy, ou par le fil d'Android pour enchaîner une playlist."""
         start = self.history.start(video)
-        local = self.downloads.local_file(video["id"])
+        local = self.downloads.local_video(video["id"])
         self.playing_id = video["id"]
         url = WATCH_URL.format(video["id"]) + (f"&t={start}" if start else "")
         if not self.player:
@@ -771,12 +855,20 @@ class AskeApp(App):
         self.watch(video, queue)
 
     def download(self, kind):
-        if platform == "android":
-            # Pour suivre l'avancement dans la notification (Android 13 et plus demande
-            # l'autorisation ; la question n'est posée qu'une fois).
-            from android.permissions import request_permissions
-            request_permissions(["android.permission.POST_NOTIFICATIONS"])
+        self._ask_permissions(kind)
         self.downloads.add(dict(self.watching), kind)
+
+    def _ask_permissions(self, kind):
+        """Autorisations demandées au premier téléchargement (la question n'est posée qu'une fois)."""
+        if platform != "android":
+            return
+        from android.permissions import request_permissions
+        # Pour suivre l'avancement dans la notification (demandée depuis Android 13).
+        permissions = ["android.permission.POST_NOTIFICATIONS"]
+        if kind == "mp3":
+            # Pour ranger le MP3 dans le dossier Musique (demandée jusqu'à Android 9).
+            permissions.append("android.permission.WRITE_EXTERNAL_STORAGE")
+        request_permissions(permissions)
 
     def _refresh_watch_download(self):
         entry = self.downloads.get(self.watching["id"]) if self.watching else None
@@ -784,6 +876,21 @@ class AskeApp(App):
         status = entry["status"] if entry else ""
         self.watch_download_icon = ICONS[{"fini": "downloaded", "echec": "error"}.get(status, "download")]
         self.can_download = bool(self.watching) and not entry and not self.watching.get("live")
+        self.watch_can_listen = status == "fini" and entry["kind"] in AUDIO_KINDS
+
+    def listen_watching(self):
+        """« Écouter », sous une vidéo téléchargée en MP3 : la vidéo se ferme, l'écoute s'ouvre."""
+        video = dict(self.watching)
+        self.close_watch()
+        if self.listen([video]):
+            self.open_listening()
+
+    def _has_mp3(self, video_id):
+        entry = self.downloads.get(video_id)
+        return bool(entry) and entry["status"] == "fini" and entry["kind"] in AUDIO_KINDS
+
+    def _can_download(self, video):
+        return not self.downloads.get(video["id"]) and not video.get("live")
 
     # --- Playlists --------------------------------------------------------------------------
 
@@ -797,19 +904,28 @@ class AskeApp(App):
                                        info=count_fr(len(playlist["videos"]))))
         if self.open_playlist_id:
             self._show_playlist_content()
-        if self.watching:
-            self._refresh_watch_playlists()
+        self._refresh_watch_playlists()
+
+    def _playlist_page(self):
+        """Page affichée (lecture d'une vidéo, ou écoute) : sa vidéo, l'endroit où s'affichent ses
+        playlists, le champ du nom d'une nouvelle playlist, et ce qui défile."""
+        ids = self.root.ids
+        if self.root.current == "ecoute":
+            return self.audio_video, ids.audio_playlist_section, ids.audio_playlist_name, ids.audio_scroll
+        return self.watching, ids.playlist_section, ids.playlist_name, ids.watch_scroll
 
     def create_playlist(self, field, add_watching=False):
-        """Crée une playlist au nom tapé dans field ; add_watching : y met la vidéo en cours."""
+        """Crée une playlist au nom tapé dans field ; add_watching : y met la vidéo (ou la piste)
+        en cours."""
         name = field.text.strip()
         if not name:
             return
         field.text = ""
         field.focus = False
         playlist = self.playlists.create(name)
-        if add_watching and self.watching:
-            self.playlists.toggle(playlist["id"], dict(self.watching))
+        video = self._playlist_page()[0]
+        if add_watching and video:
+            self.playlists.toggle(playlist["id"], dict(video))
         self.naming_playlist = False
         self.refresh_playlists()
 
@@ -817,8 +933,8 @@ class AskeApp(App):
         """« + Nouvelle playlist » sous la vidéo : le champ du nom s'ouvre en haut de la page,
         juste sous la vidéo, pour rester visible au-dessus du clavier d'Android."""
         self.naming_playlist = True
-        self.root.ids.watch_scroll.scroll_y = 1
-        field = self.root.ids.playlist_name
+        field, scroll = self._playlist_page()[2:]
+        scroll.scroll_y = 1
         Clock.schedule_once(lambda dt: setattr(field, "focus", True), 0.1)
 
     def confirm_delete_playlist(self, playlist_id):
@@ -847,9 +963,13 @@ class AskeApp(App):
         if playlist is None:
             self.close_playlist()
             return
+        videos = playlist["videos"]
         self.playlist_name = playlist["name"]
-        self.playlist_info = count_fr(len(playlist["videos"]))
-        self.root.ids.playlist_list.data = [self._row(video, "playlist") for video in playlist["videos"]]
+        self.playlist_size = len(videos)
+        self.playlist_mp3 = sum(self._has_mp3(video["id"]) for video in videos)
+        self.playlist_missing = sum(self._can_download(video) for video in videos)
+        self.playlist_info = count_fr(len(videos)) + (f" · {self.playlist_mp3} MP3" if self.playlist_mp3 else "")
+        self.root.ids.playlist_list.data = [self._row(video, "playlist") for video in videos]
 
     def play_playlist(self, playlist_id=None, index=0):
         """Lit la playlist (ouverte par défaut) à partir de sa vidéo n° index."""
@@ -858,6 +978,30 @@ class AskeApp(App):
             queue = {"label": f"Playlist «\u00a0{playlist['name']}\u00a0»",
                      "videos": list(playlist["videos"]), "index": index}
             self.watch(queue["videos"][index], queue)
+
+    def listen_playlist(self):
+        """« Écouter » : les MP3 de la playlist ouverte, à la suite, en arrière-plan."""
+        playlist = self.playlists.get(self.open_playlist_id)
+        if playlist and self.listen(playlist["videos"], 0, f"Playlist «\u00a0{playlist['name']}\u00a0»"):
+            self.open_listening()
+
+    def confirm_download_playlist(self):
+        """« MP3 » : télécharge en MP3 les vidéos de la playlist ouverte qui ne le sont pas."""
+        playlist = self.playlists.get(self.open_playlist_id)
+        videos = [video for video in playlist["videos"] if self._can_download(video)] if playlist else []
+        if not videos:
+            return
+        which = ("la vidéo de la playlist qui ne l'est pas" if len(videos) == 1
+                 else f"les {len(videos)} vidéos de la playlist qui ne le sont pas")
+        ConfirmDialog(partial(self._download_mp3, videos), action="Télécharger",
+                      message=f"Télécharger en MP3 {which} encore\u00a0?\n"
+                              "Les MP3 iront dans le dossier Musique/Aske du téléphone.").open()
+
+    def _download_mp3(self, videos):
+        self._ask_permissions("mp3")
+        for video in videos:
+            if self._can_download(video):
+                self.downloads.add(dict(video), "mp3")
 
     def play_channel(self, video_id=None):
         """Lit les vidéos de la chaîne affichée à la suite, depuis video_id (sinon la plus récente)."""
@@ -869,8 +1013,8 @@ class AskeApp(App):
             self.watch(videos[index], queue)
 
     def toggle_playlists_section(self):
-        """Ouvre ou ferme, sous la vidéo en cours, les playlists où l'enregistrer."""
-        holder = self.root.ids.playlist_section
+        """Ouvre ou ferme, sous la vidéo (ou la piste) en cours, les playlists où l'enregistrer."""
+        holder = self._playlist_page()[1]
         holder.clear_widgets()
         self.watch_playlists_open = not self.watch_playlists_open
         if self.watch_playlists_open:
@@ -878,16 +1022,17 @@ class AskeApp(App):
             self._refresh_watch_playlists()
 
     def toggle_watch_playlist(self, playlist_id):
-        self.playlists.toggle(playlist_id, dict(self.watching))
+        self.playlists.toggle(playlist_id, dict(self._playlist_page()[0]))
         self.refresh_playlists()
 
     def _refresh_watch_playlists(self):
-        sections = self.root.ids.playlist_section.children
-        if not sections:
+        video, holder = self._playlist_page()[:2]
+        sections = holder.children
+        if not sections or not video:
             return
         box = sections[0].ids.toggles
         box.clear_widgets()
-        inside = self.playlists.containing(self.watching["id"])
+        inside = self.playlists.containing(video["id"])
         for playlist in self.playlists.all():
             box.add_widget(PlaylistToggle(playlist_id=playlist["id"], name=playlist["name"],
                                           checked=playlist["id"] in inside))
@@ -895,6 +1040,133 @@ class AskeApp(App):
     def toggle_autoplay(self):
         self.autoplay = not self.autoplay
         self.store.put("lecture", auto=self.autoplay)
+
+    def toggle_mp3_quality(self):
+        self.mp3_high_quality = not self.mp3_high_quality
+        self.downloads.mp3_bitrate = 192 if self.mp3_high_quality else 128
+        self.store.put("mp3", haute_qualite=self.mp3_high_quality)
+
+    # --- Écoute des MP3 ---------------------------------------------------------------------
+
+    def listen(self, videos, index=0, label=""):
+        """Écoute à la suite, en arrière-plan, les MP3 de videos, à partir de videos[index] (ou
+        du MP3 suivant) ; les vidéos sans MP3 sont passées. Renvoie False s'il n'y en a aucun."""
+        kept, tracks, first = [], [], None
+        for number, video in enumerate(videos):
+            address = self.downloads.local_audio(video["id"])
+            if not address:
+                continue
+            if first is None and number >= index:
+                first = len(kept)
+            thumbnail = self.downloads.thumbnail(video["id"])
+            kept.append(dict(video))
+            tracks.append({"uri": address, "title": video["title"], "artist": video.get("channel", ""),
+                           "artwork": thumbnail if os.path.exists(thumbnail) else "",
+                           "start": self.history.resume_at(video)})
+        if not kept:
+            ConfirmDialog(lambda: None, action="OK", cancel="",
+                          message="Aucun MP3 à écouter\u00a0: il a peut-être été supprimé du dossier "
+                                  "Musique depuis une autre application.").open()
+            return False
+        first = first or 0
+        if self.watching:
+            self.close_watch()
+        # « seen » : dernière piste inscrite dans l'historique (voir _audio_state).
+        queue = {"label": label, "videos": kept, "seen": None}
+        # Affichage immédiat, sans attendre le premier relevé du lecteur (qui le remplacera :
+        # d'où cet ordre).
+        self.audio_state = {"queue": queue, "index": first, "position": tracks[first]["start"],
+                            "duration": 0, "playing": True}
+        self._show_audio_state()
+        self.audio.play(queue, tracks, first)
+        return True
+
+    def _audio_state(self, state):
+        """Relevé du lecteur audio, toutes les secondes, même Aske en arrière-plan (depuis le fil
+        d'Android) : retient où l'on en est dans la piste, puis prévient l'affichage."""
+        if state:
+            queue, index = state["queue"], state["index"]
+            if 0 <= index < len(queue["videos"]):
+                video = queue["videos"][index]
+                if queue["seen"] != index:  # nouvelle piste : en tête de l'historique
+                    queue["seen"] = index
+                    self.history.start(video)
+                self.history.update(video["id"], state["position"], state["duration"])
+        else:
+            self.history.save()
+        self.audio_state = state
+        self._audio_changed()
+
+    def _show_audio_state(self, *args):
+        """Mini-lecteur et écran d'écoute, d'après le dernier relevé du lecteur."""
+        state = self.audio_state
+        if not state:
+            if self.audio_active:  # fin de la liste, ou « Arrêter »
+                self.audio_active = False
+                self.audio_playing = False
+                self.audio_video = {}
+                if self.root.current == "ecoute":
+                    self.close_listening()
+                self.refresh_history()
+                self._refresh_progress()
+            return
+        queue, index = state["queue"], state["index"]
+        if not 0 <= index < len(queue["videos"]):
+            return
+        video = queue["videos"][index]
+        self.audio_active = True
+        self.audio_playing = state["playing"]
+        if video["id"] != self.audio_video.get("id") or queue is not self.audio_rows_queue:
+            self.audio_video = video
+            self.audio_title = video["title"]
+            self.audio_channel = video.get("channel", "")
+            thumbnail = self.downloads.thumbnail(video["id"])
+            self.audio_thumbnail = thumbnail if os.path.exists(thumbnail) else video["thumbnail"]
+            count = len(queue["videos"])
+            self.audio_label = " · ".join(filter(None, [queue["label"],
+                                                        f"{index + 1} sur {count}" if count > 1 else ""]))
+            self.audio_has_next = index + 1 < count
+            self._show_queue(queue, index)
+            self._refresh_watch_playlists()  # cases de la section Playlist, pour la nouvelle piste
+            self.refresh_history()
+        duration = state["duration"]
+        self.audio_elapsed = clock(state["position"])
+        self.audio_total = clock(duration) if duration else ""
+        if not self.root.ids.seek.dragging:
+            self.audio_progress = min(1, state["position"] / duration) if duration else 0
+
+    def _show_queue(self, queue, index):
+        """Pistes de l'écran d'écoute ; celle en cours est en rouge."""
+        box = self.root.ids.audio_queue
+        if queue is not self.audio_rows_queue:
+            self.audio_rows_queue = queue
+            box.clear_widgets()
+            for number, video in enumerate(queue["videos"]):
+                box.add_widget(QueueRow(index=number, title=video["title"],
+                                        channel=video.get("channel", "")))
+        for row in box.children:
+            row.current = row.index == index
+
+    def audio_seek(self, fraction):
+        """Barre de l'écran d'écoute lâchée à fraction (de 0 à 1) de la piste."""
+        state = self.audio_state
+        if state and state["duration"]:
+            self.audio_progress = fraction
+            self.audio.seek(fraction * state["duration"])
+
+    def open_listening(self):
+        """Écran d'écoute : pochette, commandes, et pistes de la liste."""
+        if not self.audio_active:
+            return
+        self.watch_playlists_open = False
+        self.naming_playlist = False
+        self.root.ids.audio_playlist_section.clear_widgets()
+        self.root.ids.audio_scroll.scroll_y = 1
+        self.root.current = "ecoute"
+
+    def close_listening(self):
+        self.naming_playlist = False
+        self.root.current = "main"
 
     # --- Historique, « Reprendre » et téléchargements --------------------------------------
 
@@ -917,7 +1189,12 @@ class AskeApp(App):
             self.resume_title = ""
 
     def resume_last(self):
-        if self.resume_video:
+        """Barre « Reprendre » : la dernière vidéo commencée, ou son MP3 s'il y en a un."""
+        if not self.resume_video:
+            return
+        if self.downloads.local_audio(self.resume_video["id"]):
+            self.listen([self.resume_video])
+        else:
             self.watch(self.resume_video)
 
     def dismiss_resume(self):
@@ -945,6 +1222,8 @@ class AskeApp(App):
         else:
             self.downloads_summary = ""
         self._refresh_watch_download()
+        if self.open_playlist_id:  # état des MP3 de la playlist ouverte
+            self._show_playlist_content()
 
     def row_pressed(self, row):
         if row.mode == "playlist":
@@ -956,6 +1235,12 @@ class AskeApp(App):
         entry = self.downloads.get(row.video["id"]) if row.mode == "telechargement" else None
         if entry and entry["status"] == "echec":
             self.downloads.retry(row.video["id"])
+        elif entry and entry["status"] == "fini" and entry["kind"] in AUDIO_KINDS:
+            # Un MP3 : il est écouté, puis les suivants de la liste.
+            videos = [entry["video"] for entry in self.downloads.entries()
+                      if entry["status"] == "fini" and entry["kind"] in AUDIO_KINDS]
+            self.listen(videos, next(index for index, video in enumerate(videos)
+                                     if video["id"] == row.video["id"]), "Téléchargés")
         else:
             self.watch(row.video)
 
@@ -971,8 +1256,12 @@ class AskeApp(App):
             self.refresh_history()
             self._refresh_progress()
         elif row.mode == "telechargement":
+            entry = self.downloads.get(video_id)
+            where = ("\nLe MP3 sera aussi effacé du dossier Musique/Aske."
+                     if entry and entry.get("uri") else "")
             ConfirmDialog(partial(self.downloads.remove, video_id), action="Supprimer",
-                          message=f"Supprimer le téléchargement de «\u00a0{row.video['title']}\u00a0»\u00a0?").open()
+                          message=f"Supprimer le téléchargement de «\u00a0{row.video['title']}\u00a0»\u00a0?"
+                                  + where).open()
 
     def _row(self, video, mode, entry=None):
         """Données d'une ligne de liste (VideoRow) pour une vidéo."""
@@ -996,6 +1285,10 @@ class AskeApp(App):
             row.update(meta=download_status(entry), trailing=ICONS["delete"],
                        thumbnail=thumbnail if os.path.exists(thumbnail) else video["thumbnail"])
         elif mode == "playlist":
+            # Téléchargée : son état (« MP3 · 45 Mo », « Téléchargement 30 % »…).
+            download = self.downloads.get(video["id"])
+            if download:
+                row.update(meta=download_status(download))
             row.update(trailing=ICONS["close"])
         return row
 
@@ -1021,6 +1314,7 @@ class AskeApp(App):
     def on_resume(self):
         if self.player:
             self.player.resume()
+        self._audio_changed()  # l'écoute a pu avancer pendant qu'Aske était cachée
 
     def on_start(self):
         self.refresh_favorites()

@@ -1,7 +1,8 @@
 # Aske
 
 Application Android écrite en Python avec [Kivy], pour regarder ou écouter des vidéos YouTube
-via `yout-ube.com`, et les garder sur le téléphone.
+via `yout-ube.com`, les garder sur le téléphone (vidéo, ou MP3), et écouter les MP3 en
+arrière-plan pendant qu'on utilise une autre application.
 
 ## Les onglets
 
@@ -12,14 +13,17 @@ via `yout-ube.com`, et les garder sur le téléphone.
     vidéos. « Tout lire » les lit à la suite ; un appui sur une vidéo la lit, puis les suivantes.
 - **Chaînes** : les chaînes auxquelles vous êtes abonné (bouton « S'abonner », sur la page
   d'une chaîne ou sous une vidéo).
-- **Playlists** : vos playlists, créées ici ou depuis une vidéo. « Tout lire » les lit à la
-  suite.
+- **Playlists** : vos playlists, créées ici ou depuis une vidéo. Dans une playlist :
+  - « Tout lire » lit les vidéos à la suite ;
+  - « Écouter » écoute ses MP3 à la suite, en arrière-plan (voir plus bas) ;
+  - « MP3 » télécharge en MP3 les vidéos qui ne le sont pas encore.
 - **Historique** : les vidéos regardées, avec l'endroit où vous vous êtes arrêté (barre rouge
   sous la miniature).
-- **Téléchargés** : les vidéos gardées sur le téléphone, lisibles sans connexion.
+- **Téléchargés** : les vidéos et les MP3 gardés sur le téléphone, lisibles sans connexion.
+  Un appui sur un MP3 l'écoute, puis les MP3 suivants de la liste.
 
-La roue dentée, en haut à droite, ouvre les **Paramètres** : lecture automatique, créateur et
-version.
+La roue dentée, en haut à droite, ouvre les **Paramètres** : lecture automatique, qualité des
+MP3, créateur et version.
 
 ## La page de lecture
 
@@ -28,8 +32,8 @@ tournez le téléphone), et dessous :
 
 - **le nom de la chaîne** : un appui l'affiche, et « retour » ramène à la vidéo ;
   « S'abonner » l'ajoute à l'onglet Chaînes ;
-- **Vidéo** ou **Son** : télécharge la vidéo entière, ou seulement le son (un livre audio de
-  8 heures fait environ 470 Mo) ;
+- **MP3** ou **Vidéo** : télécharge seulement le son, en MP3, ou la vidéo entière. Une fois le
+  MP3 prêt, le bouton devient **Écouter** ;
 - **Playlist** : l'enregistre dans une ou plusieurs playlists (cochez-les), ou dans une
   nouvelle (« + Nouvelle playlist »).
 
@@ -49,7 +53,27 @@ automatique* (Paramètres) le désactive : le bouton « Suivante » passe à la 
 ## Écoute écran éteint
 
 Éteignez l'écran pendant une vidéo : le son continue. Passer à une autre application met la
-vidéo en pause ; elle reprend au retour dans Aske.
+vidéo en pause ; elle reprend au retour dans Aske. Pour écouter en naviguant sur Chrome, par
+exemple, téléchargez-la en MP3.
+
+## Écoute des MP3 en arrière-plan
+
+« Écouter » (dans une playlist, sous une vidéo téléchargée en MP3) ou un appui sur un MP3 de
+l'onglet Téléchargés lance l'écoute : les MP3 s'enchaînent, et le son continue quand vous
+passez à une autre application ou éteignez l'écran.
+
+- En bas de l'écran, le **mini-lecteur** montre la piste en cours : lecture ou pause, piste
+  suivante, arrêt. Un appui dessus ouvre l'**écran d'écoute** : pochette, barre de lecture
+  (touchez-la ou faites-la glisser), piste précédente, 10 secondes en arrière, 30 secondes en
+  avant, piste suivante, et toutes les pistes de la liste (un appui en lance une). Le bouton
+  « Playlist » y range la piste en cours dans vos playlists.
+- Hors d'Aske, la **notification**, l'écran de verrouillage et les boutons d'un casque ou
+  d'une enceinte Bluetooth commandent l'écoute.
+- L'écoute se met en pause quand une autre application joue du son (une vidéo dans Chrome…) ou
+  quand on débranche le casque ; pendant un appel, elle reprend ensuite toute seule.
+- Comme pour les vidéos, Aske retient où vous en êtes dans chaque MP3 et le reprend là. La
+  barre « Reprendre » relance le MP3 plutôt que la vidéo, s'il y en a un.
+- À la fin de la liste, ou avec « Arrêter », l'écoute s'arrête et la notification disparaît.
 
 Pendant la lecture et les téléchargements, Android affiche une notification « Aske » : c'est
 elle qui permet de continuer écran éteint, et elle montre l'avancement des téléchargements.
@@ -65,7 +89,21 @@ téléphone, même avec une connexion.
 
 YouTube ne fournit plus de fichier contenant à la fois l'image (720p au plus) et le son : Aske
 télécharge les deux avec [yt-dlp], puis les assemble avec Android, sans perte de qualité. Les
-fichiers restent dans le stockage privé d'Aske et disparaissent si vous la désinstallez.
+vidéos restent dans le stockage privé d'Aske et disparaissent si vous la désinstallez.
+
+Pour un **MP3**, Aske télécharge le son, puis le convertit sur le téléphone avec [FFmpeg], en
+y mettant le titre, la chaîne et la miniature (pochette). La conversion prend plus de temps que
+le téléchargement (environ 6 minutes pour 8 heures de son sur un Galaxy XCover Pro 2) ; la liste
+et la notification en montrent l'avancement. Les MP3 sont rangés dans
+le dossier **Musique/Aske** du téléphone : les autres applications (lecteur de musique,
+gestionnaire de fichiers) les voient, et ils y restent si vous désinstallez Aske. Supprimer un
+MP3 dans Aske l'efface aussi de ce dossier. Sur Android 9 et plus ancien, Aske demande
+l'autorisation d'y écrire au premier MP3.
+
+Les MP3 sont à 128 kbit/s (environ 55 Mo par heure), ce qui suffit pour la parole ; le réglage
+*Qualité supérieure* (Paramètres) passe à 192 kbit/s (82 Mo par heure). Les « Son » téléchargés
+avec Aske 1.4 (fichiers M4A, dans le stockage privé) restent dans l'onglet Téléchargés et
+s'écoutent de la même façon.
 
 yt-dlp suit les changements de YouTube : si les téléchargements cessent de fonctionner, mettez
 sa version à jour dans `buildozer.spec` (ligne `requirements`), puis recompilez l'APK.
@@ -83,7 +121,7 @@ son site. À chaque ouverture, elle réaffiche la dernière chaîne ou la derni�
 3. Installez l'APK (`adb` a été téléchargé avec le SDK Android lors de la compilation) :
 
    ```bash
-   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.4-arm64-v8a-debug.apk
+   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.5-arm64-v8a-debug.apk
    ```
 
 Sans câble : copiez le fichier `.apk` sur le téléphone et ouvrez-le. Android demandera
@@ -104,6 +142,10 @@ L'APK est créé dans `bin/`. La première compilation télécharge le SDK et le
 Pour une nouvelle version, changez `__version__` en haut de `main.py` : c'est à la fois le
 numéro de l'APK et celui affiché dans Paramètres.
 
+FFmpeg est compilé par une recette propre à Aske, `recipes/ffmpeg_mp3/` : elle ne garde que le
+décodeur du son de YouTube, l'encodeur MP3 [libshine] et la lecture des pochettes JPEG (moins de
+2 Mo dans l'APK). Pour changer de version de FFmpeg, modifiez `version` dans cette recette.
+
 Le dossier `~/.android` monté dans le conteneur conserve la clé de signature
 (`debug.keystore`). Sans lui, chaque compilation serait signée avec une nouvelle clé, et Android
 refuserait d'installer la nouvelle version par-dessus l'ancienne. Ne supprimez donc pas ce fichier.
@@ -119,7 +161,10 @@ python3.13 -m venv .venv && .venv/bin/pip install kivy certifi yt-dlp
 ```
 
 Sur PC, les vidéos s'ouvrent dans le navigateur, et le téléchargement de vidéos entières ne
-fonctionne pas (l'assemblage de l'image et du son passe par Android) ; celui du son, si.
+fonctionne pas (l'assemblage de l'image et du son passe par Android). Les MP3, si : il faut
+FFmpeg (`sudo apt install ffmpeg`), et ils vont dans votre dossier Musique/Aske. Leur écoute
+passe par le son de Kivy, qui repart toujours du début de la piste : de quoi essayer
+l'interface.
 
 ## Icônes
 
@@ -144,4 +189,6 @@ docker rmi kivy/buildozer
 
 [Kivy]: https://kivy.org
 [yt-dlp]: https://github.com/yt-dlp/yt-dlp
+[FFmpeg]: https://ffmpeg.org
+[libshine]: https://github.com/toots/shine
 [Material Icons]: https://github.com/google/material-design-icons

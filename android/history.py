@@ -48,15 +48,25 @@ class History(JsonFile):
         """Une vidéo commence : la place en tête de l'historique et renvoie la seconde
         où la reprendre (0 : depuis le début)."""
         with self.lock:
+            resume = self.resume_at(video)
             entry = self.data.pop(video["id"], {})
-            # Vue en entier la dernière fois (ou direct) : elle repart du début.
-            position = 0 if entry.get("finished") or video.get("live") else entry.get("position", 0)
-            entry.update(video=video, watched=time.time(), finished=False, position=position)
+            entry.update(video=video, watched=time.time(), finished=False,
+                         position=self._position(video, entry))
             self.data[video["id"]] = entry
             for old in sorted(self.data, key=lambda key: self.data[key]["watched"])[:-MAX_VIDEOS]:
                 del self.data[old]
             self.save()
+        return resume
+
+    def resume_at(self, video):
+        """Seconde où reprendre la vidéo (0 : depuis le début), sans rien changer à l'historique."""
+        position = self._position(video, self.data.get(video["id"], {}))
         return max(0, int(position) - REWIND) if position >= MIN_RESUME else 0
+
+    @staticmethod
+    def _position(video, entry):
+        # Vue en entier la dernière fois (ou direct) : elle repart du début.
+        return 0 if entry.get("finished") or video.get("live") else entry.get("position", 0)
 
     def update(self, video_id, position, duration):
         """Position relevée pendant la lecture, enregistrée au plus toutes les SAVE_INTERVAL s."""

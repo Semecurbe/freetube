@@ -597,6 +597,138 @@
         pos_hint: {"center_y": 0.5}
         on_release: app.dismiss_resume()
 
+# Mini-lecteur : la piste en cours d'écoute ; un appui ouvre l'écran d'écoute.
+<AudioBar@ButtonBehavior+BoxLayout>:
+    orientation: "vertical"
+    canvas.before:
+        Color:
+            rgba: RAISED if self.state == "down" else SURFACE
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    ProgressLine:
+        progress: app.audio_progress
+        size_hint_y: None
+        height: dp(2)
+
+    BoxLayout:
+        padding: dp(12), 0, dp(4), 0
+        spacing: dp(6)
+
+        Icon:
+            text: ICONS["audio"]
+            color: ACCENT
+            size_hint_x: None
+            width: dp(32)
+
+        BoxLayout:
+            orientation: "vertical"
+            padding: dp(4), dp(8)
+
+            LineLabel:
+                text: app.audio_title
+                font_size: sp(14)
+                bold: True
+                color: TEXT
+
+            LineLabel:
+                text: app.audio_elapsed + (" / " + app.audio_total if app.audio_total else "") + (" · " + app.audio_label if app.audio_label else "")
+                font_size: sp(12)
+                color: MUTED
+
+        IconButton:
+            text: ICONS["pause"] if app.audio_playing else ICONS["play"]
+            color: TEXT
+            pos_hint: {"center_y": 0.5}
+            on_release: app.audio.toggle()
+
+        IconButton:
+            text: ICONS["next"]
+            opacity: 1 if app.audio_has_next else 0.3
+            disabled: not app.audio_has_next
+            pos_hint: {"center_y": 0.5}
+            on_release: app.audio.next()
+
+        IconButton:
+            text: ICONS["close"]
+            pos_hint: {"center_y": 0.5}
+            on_release: app.audio.stop()
+
+# Barre de l'écran d'écoute : la part de la piste déjà écoutée, et le curseur à faire glisser.
+<SeekBar>:
+    canvas:
+        Color:
+            rgba: RAISED
+        RoundedRectangle:
+            pos: self.x, self.center_y - dp(2)
+            size: self.width, dp(4)
+            radius: [dp(2)]
+        Color:
+            rgba: ACCENT
+        RoundedRectangle:
+            pos: self.x, self.center_y - dp(2)
+            size: self.width * self.value, dp(4)
+            radius: [dp(2)]
+        Ellipse:
+            pos: self.x + self.width * self.value - dp(8), self.center_y - dp(8)
+            size: dp(16), dp(16)
+
+# Gros bouton rond : lecture ou pause, dans l'écran d'écoute.
+<RoundButton@ButtonBehavior+Icon>:
+    size_hint: None, None
+    size: dp(64), dp(64)
+    font_size: dp(36)
+    color: TEXT
+    canvas.before:
+        Color:
+            rgba: ACCENT[:3] + [0.7 if self.state == "down" else 1]
+        Ellipse:
+            pos: self.pos
+            size: self.size
+
+# Bouton de l'écran d'écoute (piste précédente, reculer, avancer, piste suivante).
+<PlayerButton@IconButton>:
+    size: dp(52), dp(52)
+    font_size: dp(30)
+    color: TEXT
+    pos_hint: {"center_y": 0.5}
+
+# Une piste de l'écran d'écoute : son numéro (ou le symbole de lecture), titre et chaîne.
+<QueueRow>:
+    size_hint_y: None
+    height: max(dp(56), (sp(14) + sp(12)) * 1.2 + dp(20))
+    padding: 0, dp(8), dp(8), dp(8)
+    spacing: dp(8)
+    canvas.before:
+        Color:
+            rgba: SURFACE if self.state == "down" else BG
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: ICONS["play"] if root.current else str(root.index + 1)
+        font_name: ICON_FONT if root.current else "Roboto"
+        font_size: dp(20) if root.current else sp(13)
+        color: ACCENT if root.current else MUTED
+        size_hint_x: None
+        width: dp(36)
+
+    BoxLayout:
+        orientation: "vertical"
+
+        LineLabel:
+            text: root.title
+            font_size: sp(14)
+            bold: True
+            color: ACCENT if root.current else TEXT
+
+        LineLabel:
+            text: root.channel
+            font_size: sp(12)
+            color: MUTED
+
 <ConfirmDialog>:
     size_hint: 0.86, None
     height: box.height
@@ -625,8 +757,11 @@
             Widget:
 
             SmallPill:
-                text: "Annuler"
+                text: root.cancel
                 fill: RAISED
+                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if root.cancel else (0, 0)
+                opacity: 1 if root.cancel else 0
+                disabled: not root.cancel
                 on_release: root.dismiss()
 
             SmallPill:
@@ -823,14 +958,19 @@ ScreenManager:
                             BoxLayout:
                                 orientation: "vertical"
 
+                                # Nom, nombre de vidéos et de MP3 ; lire les vidéos, écouter les MP3,
+                                # télécharger en MP3 les vidéos qui ne le sont pas encore
                                 BoxLayout:
+                                    orientation: "vertical"
                                     size_hint_y: None
-                                    height: max(dp(64), (sp(20) + sp(13)) * 1.2 + dp(20))
-                                    padding: dp(16), dp(8), dp(12), dp(8)
+                                    height: self.minimum_height
+                                    padding: dp(16), dp(8), dp(16), dp(8)
                                     spacing: dp(10)
 
                                     BoxLayout:
                                         orientation: "vertical"
+                                        size_hint_y: None
+                                        height: (sp(20) + sp(13)) * 1.2 + dp(4)
 
                                         LineLabel:
                                             text: app.playlist_name
@@ -843,18 +983,35 @@ ScreenManager:
                                             font_size: sp(13)
                                             color: MUTED
 
-                                    PillButton:
-                                        text: "[font=%s]%s[/font] Tout lire" % (ICON_FONT, ICONS["play"])
-                                        font_size: sp(14)
-                                        opacity: 0 if app.playlist_info.startswith("0 ") else 1
-                                        disabled: app.playlist_info.startswith("0 ")
-                                        size_hint: None, None
-                                        size: self.texture_size[0] + dp(28), PILL_HEIGHT
-                                        pos_hint: {"center_y": 0.5}
-                                        on_release: app.play_playlist()
+                                    # Les boutons cachés ont une taille nulle.
+                                    StackLayout:
+                                        size_hint_y: None
+                                        height: self.minimum_height if app.playlist_size else 0
+                                        opacity: 1 if app.playlist_size else 0
+                                        disabled: not app.playlist_size
+                                        spacing: dp(8)
+
+                                        SmallPill:
+                                            text: "[font=%s]%s[/font] Tout lire" % (ICON_FONT, ICONS["play"])
+                                            fill: ACCENT
+                                            on_release: app.play_playlist()
+
+                                        SmallPill:
+                                            text: "[font=%s]%s[/font] Écouter" % (ICON_FONT, ICONS["audio"])
+                                            size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.playlist_mp3 else (0, 0)
+                                            opacity: 1 if app.playlist_mp3 else 0
+                                            disabled: not app.playlist_mp3
+                                            on_release: app.listen_playlist()
+
+                                        SmallPill:
+                                            text: "[font=%s]%s[/font] MP3" % (ICON_FONT, ICONS["download"])
+                                            size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.playlist_missing else (0, 0)
+                                            opacity: 1 if app.playlist_missing else 0
+                                            disabled: not app.playlist_missing
+                                            on_release: app.confirm_download_playlist()
 
                                 WrappedLabel:
-                                    text: "Cette playlist est vide.\nOuvrez une vidéo, puis appuyez sur «\u00a0Playlist\u00a0» sous le lecteur pour l'y enregistrer." if app.playlist_info.startswith("0 ") else ""
+                                    text: "Cette playlist est vide.\nOuvrez une vidéo, puis appuyez sur «\u00a0Playlist\u00a0» sous le lecteur pour l'y enregistrer." if not app.playlist_size else ""
                                     color: MUTED
                                     font_size: sp(14)
                                     halign: "center"
@@ -927,7 +1084,7 @@ ScreenManager:
                         orientation: "vertical"
 
                         WrappedLabel:
-                            text: app.downloads_summary or "Aucun téléchargement pour l'instant.\nOuvrez une vidéo, puis appuyez sur «\u00a0Vidéo\u00a0» ou «\u00a0Son\u00a0» sous le lecteur\u00a0: elle restera sur le téléphone, lisible sans connexion."
+                            text: app.downloads_summary or "Aucun téléchargement pour l'instant.\nOuvrez une vidéo, puis appuyez sur «\u00a0MP3\u00a0» ou «\u00a0Vidéo\u00a0» sous le lecteur\u00a0: elle restera sur le téléphone, lisible sans connexion. Les MP3 vont dans le dossier Musique/Aske."
                             color: MUTED
                             font_size: sp(14)
                             halign: "left" if app.downloads_summary else "center"
@@ -969,6 +1126,19 @@ ScreenManager:
                                 on_release: app.toggle_autoplay()
 
                             SectionTitle:
+                                text: "MP3"
+
+                            SwitchRow:
+                                title: "Qualité supérieure"
+                                detail: "192\u00a0kbit/s au lieu de 128\u00a0: environ 82\u00a0Mo par heure au lieu de 55. La qualité normale suffit pour la parole (livres audio, podcasts)."
+                                active: app.mp3_high_quality
+                                on_release: app.toggle_mp3_quality()
+
+                            SettingRow:
+                                title: "Dossier"
+                                value: "Musique/Aske\u00a0: les MP3 y sont visibles des autres applications, et y restent si vous désinstallez Aske."
+
+                            SectionTitle:
                                 text: "À propos"
 
                             SettingRow:
@@ -979,13 +1149,21 @@ ScreenManager:
                                 title: "Version"
                                 value: app.version
 
-            # Dernière vidéo commencée, reprise d'un appui
+            # Dernière vidéo commencée, reprise d'un appui (cachée pendant l'écoute)
             ResumeBar:
                 size_hint_y: None
-                height: max(dp(56), (sp(14) + sp(12)) * 1.2 + dp(20)) if app.resume_title else 0
-                opacity: 1 if app.resume_title else 0
-                disabled: not app.resume_title
+                height: max(dp(56), (sp(14) + sp(12)) * 1.2 + dp(20)) if app.resume_title and not app.audio_active else 0
+                opacity: 1 if app.resume_title and not app.audio_active else 0
+                disabled: not app.resume_title or app.audio_active
                 on_release: app.resume_last()
+
+            # Écoute en cours : un appui ouvre l'écran d'écoute
+            AudioBar:
+                size_hint_y: None
+                height: max(dp(58), (sp(14) + sp(12)) * 1.2 + dp(22)) if app.audio_active else 0
+                opacity: 1 if app.audio_active else 0
+                disabled: not app.audio_active
+                on_release: app.open_listening()
 
             # Barre d'onglets
             BoxLayout:
@@ -1171,8 +1349,8 @@ ScreenManager:
                                 pos_hint: {"center_y": 0.5}
                                 on_release: app.toggle_watch_subscription()
 
-                        # Enregistrer dans une playlist, télécharger (vidéo ou son seul). « Playlist » en
-                        # premier : les boutons de téléchargement cachés (taille nulle) viennent après.
+                        # Enregistrer dans une playlist ; télécharger en MP3 (puis l'écouter) ou en vidéo.
+                        # Les boutons cachés (taille nulle) viennent après les autres.
                         StackLayout:
                             size_hint_y: None
                             height: self.minimum_height
@@ -1184,18 +1362,19 @@ ScreenManager:
                                 on_release: app.toggle_playlists_section()
 
                             SmallPill:
+                                text: "[font=%s]%s[/font] %s" % (ICON_FONT, ICONS["audio"] if app.watch_can_listen else ICONS["download"], "Écouter" if app.watch_can_listen else "MP3")
+                                fill: ACCENT if app.watch_can_listen else SURFACE
+                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download or app.watch_can_listen else (0, 0)
+                                opacity: 1 if app.can_download or app.watch_can_listen else 0
+                                disabled: not (app.can_download or app.watch_can_listen)
+                                on_release: app.listen_watching() if app.watch_can_listen else app.download("mp3")
+
+                            SmallPill:
                                 text: "[font=%s]%s[/font] Vidéo" % (ICON_FONT, ICONS["download"])
                                 size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download else (0, 0)
                                 opacity: 1 if app.can_download else 0
                                 disabled: not app.can_download
                                 on_release: app.download("video")
-
-                            SmallPill:
-                                text: "[font=%s]%s[/font] Son" % (ICON_FONT, ICONS["download"])
-                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download else (0, 0)
-                                opacity: 1 if app.can_download else 0
-                                disabled: not app.can_download
-                                on_release: app.download("audio")
 
                         # État du téléchargement de la vidéo
                         WrappedLabel:
@@ -1216,3 +1395,183 @@ ScreenManager:
                             text: app.watch_description
                             font_size: sp(13)
                             color: MUTED
+
+    # Écoute des MP3 : pochette et commandes en haut ; dessous, playlists et pistes de la liste.
+    # Le son continue quand on quitte cet écran, ou Aske.
+    Screen:
+        name: "ecoute"
+
+        BoxLayout:
+            orientation: "vertical"
+
+            # En-tête : retour à l'écran principal
+            BoxLayout:
+                size_hint_y: None
+                height: max(dp(56), sp(18) * 1.2 + dp(16))
+                padding: dp(4), 0, dp(16), 0
+                spacing: dp(4)
+
+                IconButton:
+                    text: ICONS["collapse"]
+                    pos_hint: {"center_y": 0.5}
+                    on_release: app.close_listening()
+
+                LineLabel:
+                    text: "Écoute"
+                    font_size: sp(18)
+                    bold: True
+                    color: TEXT
+
+            BoxLayout:
+                orientation: "vertical"
+                size_hint_y: None
+                height: self.minimum_height
+                padding: dp(16), 0, dp(16), dp(4)
+                spacing: dp(8)
+
+                # Nom d'une nouvelle playlist : en haut, pour rester visible au-dessus du clavier
+                BoxLayout:
+                    size_hint_y: None
+                    height: PILL_HEIGHT if app.naming_playlist else 0
+                    opacity: 1 if app.naming_playlist else 0
+                    disabled: not app.naming_playlist
+                    spacing: dp(8)
+
+                    FieldBox:
+                        Field:
+                            id: audio_playlist_name
+                            hint_text: "Nom de la playlist"
+                            on_text_validate: app.create_playlist(self, True)
+
+                    PillButton:
+                        text: "Créer"
+                        font_size: sp(14)
+                        size_hint_x: None
+                        width: max(dp(72), self.texture_size[0] + dp(28))
+                        on_release: app.create_playlist(audio_playlist_name, True)
+
+                # Miniature de la vidéo, plus petite sur un écran bas
+                AsyncImage:
+                    source: app.audio_thumbnail
+                    fit_mode: "cover"
+                    size_hint_y: None
+                    height: min(self.width * 9 / 16, root.height * 0.26)
+                    canvas.before:
+                        Color:
+                            rgba: SURFACE
+                        Rectangle:
+                            pos: self.pos
+                            size: self.size
+
+                WrappedLabel:
+                    text: app.audio_title
+                    font_size: sp(17)
+                    bold: True
+                    color: TEXT
+                    max_lines: 2
+
+                LineLabel:
+                    text: app.audio_channel
+                    font_size: sp(13)
+                    color: MUTED
+                    size_hint_y: None
+                    height: sp(13) * 1.2 + dp(2)
+
+                # Playlist (ou Téléchargés) et numéro de la piste
+                LineLabel:
+                    text: app.audio_label
+                    font_size: sp(13)
+                    bold: True
+                    color: ACCENT
+                    size_hint_y: None
+                    height: sp(13) * 1.2 + dp(2) if self.text else 0
+
+                SeekBar:
+                    id: seek
+                    value: app.audio_progress
+                    disabled: not app.audio_total
+                    size_hint_y: None
+                    height: dp(28)
+
+                BoxLayout:
+                    size_hint_y: None
+                    height: sp(12) * 1.2 + dp(2)
+
+                    LineLabel:
+                        text: app.audio_elapsed
+                        font_size: sp(12)
+                        color: MUTED
+
+                    LineLabel:
+                        text: app.audio_total
+                        font_size: sp(12)
+                        color: MUTED
+                        halign: "right"
+
+                # Piste précédente, reculer de 10 s, lecture ou pause, avancer de 30 s, suivante
+                BoxLayout:
+                    size_hint_y: None
+                    height: dp(72)
+                    spacing: dp(6)
+
+                    Widget:
+
+                    PlayerButton:
+                        text: ICONS["previous"]
+                        on_release: app.audio.previous()
+
+                    PlayerButton:
+                        text: ICONS["rewind"]
+                        on_release: app.audio.rewind()
+
+                    RoundButton:
+                        text: ICONS["pause"] if app.audio_playing else ICONS["play"]
+                        pos_hint: {"center_y": 0.5}
+                        on_release: app.audio.toggle()
+
+                    PlayerButton:
+                        text: ICONS["forward"]
+                        on_release: app.audio.forward()
+
+                    PlayerButton:
+                        text: ICONS["next"]
+                        opacity: 1 if app.audio_has_next else 0.3
+                        disabled: not app.audio_has_next
+                        on_release: app.audio.next()
+
+                    Widget:
+
+            ScrollView:
+                id: audio_scroll
+                do_scroll_x: False
+                bar_width: dp(4)
+
+                BoxLayout:
+                    orientation: "vertical"
+                    size_hint_y: None
+                    height: self.minimum_height
+                    padding: dp(16), dp(8), dp(16), dp(24)
+                    spacing: dp(8)
+
+                    StackLayout:
+                        size_hint_y: None
+                        height: self.minimum_height
+
+                        SmallPill:
+                            text: "[font=%s]%s[/font] Playlist" % (ICON_FONT, ICONS["playlist_add"])
+                            fill: RAISED if app.watch_playlists_open else SURFACE
+                            on_release: app.toggle_playlists_section()
+
+                    # Section « Enregistrer dans une playlist », ajoutée ici quand on l'ouvre
+                    BoxLayout:
+                        id: audio_playlist_section
+                        orientation: "vertical"
+                        size_hint_y: None
+                        height: self.minimum_height
+
+                    # Les pistes de la liste : un appui en lance une
+                    BoxLayout:
+                        id: audio_queue
+                        orientation: "vertical"
+                        size_hint_y: None
+                        height: self.minimum_height
