@@ -2,7 +2,7 @@
 et écoute des MP3 en arrière-plan."""
 
 # Lu aussi par Buildozer (version.regex dans buildozer.spec) : c'est la version de l'APK.
-__version__ = "1.5"
+__version__ = "1.6"
 
 import gzip
 import http.client
@@ -37,7 +37,7 @@ from kivy.uix.widget import Widget
 from kivy.utils import get_color_from_hex, platform
 
 from audio import AudioPlayer
-from downloads import AUDIO_KINDS, DownloadManager, size_fr
+from downloads import AUDIO_KINDS, DownloadManager, cache_folder, size_fr, stream_url
 from history import History
 from icons import ICONS
 from playlists import Playlists
@@ -316,8 +316,8 @@ def download_status(entry):
     if entry["status"] == "attente":
         return f"{kind} · en attente"
     if entry["status"] == "cours":
-        step = " · conversion en MP3" if entry.get("step") == "conversion" else ""
-        return f"Téléchargement {entry['progress']}\u00a0%{step}"
+        step = "Conversion en MP3" if entry.get("step") == "conversion" else "Téléchargement"
+        return f"{step} {entry['progress']}\u00a0%"
     if entry["status"] == "echec":
         return f"Échec, touchez pour réessayer\u00a0: {entry['error']}"
     return f"{kind} · {size_fr(entry['size'])}"
@@ -422,6 +422,7 @@ class QueueRow(ButtonBehavior, BoxLayout):
     title = StringProperty()
     channel = StringProperty()
     current = BooleanProperty(False)  # piste en cours
+    online = BooleanProperty(False)  # pas de MP3 : son lu en ligne
 
     def on_release(self):
         App.get_running_app().audio.jump(self.index)
@@ -517,7 +518,7 @@ class AskeApp(App):
     watch_download = StringProperty()  # état de son téléchargement ("" : pas téléchargée)
     watch_download_icon = StringProperty()
     can_download = BooleanProperty(False)  # ni téléchargée, ni en direct
-    watch_can_listen = BooleanProperty(False)  # téléchargée en MP3 : bouton « Écouter »
+    watch_can_listen = BooleanProperty(False)  # pas en direct : bouton « Écouter »
     # Barre « Reprendre » : dernière vidéo commencée ("" : barre cachée).
     resume_title = StringProperty()
     resume_meta = StringProperty()
@@ -534,7 +535,7 @@ class AskeApp(App):
     playlist_name = StringProperty()
     playlist_info = StringProperty()
     playlist_size = NumericProperty(0)
-    playlist_mp3 = NumericProperty(0)
+    playlist_listenable = NumericProperty(0)  # vidéos à écouter (tout sauf les directs)
     playlist_missing = NumericProperty(0)
     # Paramètres : enchaîner les vidéos d'une playlist ; MP3 à 192 kbit/s au lieu de 128.
     autoplay = BooleanProperty(True)
@@ -550,6 +551,7 @@ class AskeApp(App):
     audio_total = StringProperty()
     audio_progress = NumericProperty(0)  # part de la piste déjà écoutée
     audio_has_next = BooleanProperty(False)
+    audio_loading = BooleanProperty(False)  # piste en ligne pas encore arrivée
 
     def build(self):
         Window.clearcolor = get_color_from_hex("#0f0f0f")
@@ -573,7 +575,8 @@ class AskeApp(App):
         self.downloads.mp3_bitrate = 192 if self.mp3_high_quality else 128
         # Écoute des MP3 : dernier relevé du lecteur (voir _audio_state), piste en cours, et
         # liste dont les pistes sont affichées dans l'écran d'écoute.
-        self.audio = AudioPlayer(self._audio_state)
+        self.audio = AudioPlayer(self._audio_state, self._find_stream)
+        self.cache_folder = cache_folder()  # pochettes des pistes en ligne
         self.audio_state = None
         self.audio_video = {}
         self.audio_rows_queue = None
@@ -876,10 +879,11 @@ class AskeApp(App):
         status = entry["status"] if entry else ""
         self.watch_download_icon = ICONS[{"fini": "downloaded", "echec": "error"}.get(status, "download")]
         self.can_download = bool(self.watching) and not entry and not self.watching.get("live")
-        self.watch_can_listen = status == "fini" and entry["kind"] in AUDIO_KINDS
+        self.watch_can_listen = bool(self.watching) and not self.watching.get("live")
 
     def listen_watching(self):
-        """« Écouter », sous une vidéo téléchargée en MP3 : la vidéo se ferme, l'écoute s'ouvre."""
+        """« Écouter », sous la vidéo : elle se ferme, et l'écoute en arrière-plan s'ouvre (son
+        MP3 s'il est sur le téléphone, sinon son son en ligne)."""
         video = dict(self.watching)
         self.close_watch()
         if self.listen([video]):
@@ -888,6 +892,10 @@ class AskeApp(App):
     def _has_mp3(self, video_id):
         entry = self.downloads.get(video_id)
         return bool(entry) and entry["status"] == "fini" and entry["kind"] in AUDIO_KINDS
+
+    def _mp3_pending(self, video_id):
+        entry = self.downloads.get(video_id)
+        return bool(entry) and entry["status"] in ("attente", "cours") and entry["kind"] in AUDIO_KINDS
 
     def _can_download(self, video):
         return not self.downloads.get(video["id"]) and not video.get("live")
@@ -966,9 +974,13 @@ class AskeApp(App):
         videos = playlist["videos"]
         self.playlist_name = playlist["name"]
         self.playlist_size = len(videos)
-        self.playlist_mp3 = sum(self._has_mp3(video["id"]) for video in videos)
+        self.playlist_listenable = sum(not video.get("live") for video in videos)
         self.playlist_missing = sum(self._can_download(video) for video in videos)
-        self.playlist_info = count_fr(len(videos)) + (f" · {self.playlist_mp3} MP3" if self.playlist_mp3 else "")
+        mp3 = sum(self._has_mp3(video["id"]) for video in videos)
+        pending = sum(self._mp3_pending(video["id"]) for video in videos)
+        self.playlist_info = " · ".join(filter(None, [
+            count_fr(len(videos)), f"{mp3} MP3" if mp3 else "",
+            f"{pending} en cours" if pending else ""]))
         self.root.ids.playlist_list.data = [self._row(video, "playlist") for video in videos]
 
     def play_playlist(self, playlist_id=None, index=0):
@@ -980,7 +992,8 @@ class AskeApp(App):
             self.watch(queue["videos"][index], queue)
 
     def listen_playlist(self):
-        """« Écouter » : les MP3 de la playlist ouverte, à la suite, en arrière-plan."""
+        """« Écouter » : la playlist ouverte, à la suite, en arrière-plan (les MP3 quand ils sont
+        sur le téléphone, le son en ligne sinon)."""
         playlist = self.playlists.get(self.open_playlist_id)
         if playlist and self.listen(playlist["videos"], 0, f"Playlist «\u00a0{playlist['name']}\u00a0»"):
             self.open_listening()
@@ -1046,40 +1059,58 @@ class AskeApp(App):
         self.downloads.mp3_bitrate = 192 if self.mp3_high_quality else 128
         self.store.put("mp3", haute_qualite=self.mp3_high_quality)
 
-    # --- Écoute des MP3 ---------------------------------------------------------------------
+    # --- Écoute en arrière-plan ---------------------------------------------------------------
 
     def listen(self, videos, index=0, label=""):
-        """Écoute à la suite, en arrière-plan, les MP3 de videos, à partir de videos[index] (ou
-        du MP3 suivant) ; les vidéos sans MP3 sont passées. Renvoie False s'il n'y en a aucun."""
+        """Écoute à la suite, en arrière-plan, les vidéos de videos à partir de videos[index] :
+        leur MP3 s'il est sur le téléphone, sinon leur son en ligne. Les directs sont passés.
+        Renvoie False s'il n'y a rien à écouter."""
         kept, tracks, first = [], [], None
         for number, video in enumerate(videos):
-            address = self.downloads.local_audio(video["id"])
-            if not address:
+            if video.get("live"):
                 continue
+            address = self.downloads.local_audio(video["id"]) or ""
             if first is None and number >= index:
                 first = len(kept)
             thumbnail = self.downloads.thumbnail(video["id"])
             kept.append(dict(video))
-            tracks.append({"uri": address, "title": video["title"], "artist": video.get("channel", ""),
+            tracks.append({"uri": address, "online": not address, "video": kept[-1],
+                           "title": video["title"], "artist": video.get("channel", ""),
                            "artwork": thumbnail if os.path.exists(thumbnail) else "",
                            "start": self.history.resume_at(video)})
         if not kept:
             ConfirmDialog(lambda: None, action="OK", cancel="",
-                          message="Aucun MP3 à écouter\u00a0: il a peut-être été supprimé du dossier "
-                                  "Musique depuis une autre application.").open()
+                          message="Rien à écouter\u00a0: un direct ne s'écoute pas en arrière-plan.").open()
             return False
         first = first or 0
         if self.watching:
             self.close_watch()
         # « seen » : dernière piste inscrite dans l'historique (voir _audio_state).
-        queue = {"label": label, "videos": kept, "seen": None}
+        queue = {"label": label, "videos": kept, "online": [track["online"] for track in tracks],
+                 "seen": None}
         # Affichage immédiat, sans attendre le premier relevé du lecteur (qui le remplacera :
         # d'où cet ordre).
         self.audio_state = {"queue": queue, "index": first, "position": tracks[first]["start"],
-                            "duration": 0, "playing": True}
+                            "duration": 0, "playing": True, "loading": tracks[first]["online"]}
         self._show_audio_state()
         self.audio.play(queue, tracks, first)
         return True
+
+    def _find_stream(self, track):
+        """Adresse du son en ligne d'une piste, ses en-têtes HTTP (en JSON), et sa pochette, gardée
+        dans le dossier jetable d'Aske. Appelée par le lecteur, dans un autre fil."""
+        video = track["video"]
+        uri, headers = stream_url(video["id"])
+        artwork = os.path.join(self.cache_folder, video["id"] + ".jpg")
+        if not os.path.exists(artwork):
+            try:
+                data = http_get(video["thumbnail"])
+                with open(artwork + ".tmp", "wb") as file:
+                    file.write(data)
+                os.replace(artwork + ".tmp", artwork)
+            except (YouTubeError, urllib.error.HTTPError, OSError):
+                artwork = ""  # pas de pochette, mais le son est là
+        return uri, json.dumps(headers), artwork
 
     def _audio_state(self, state):
         """Relevé du lecteur audio, toutes les secondes, même Aske en arrière-plan (depuis le fil
@@ -1116,6 +1147,7 @@ class AskeApp(App):
         video = queue["videos"][index]
         self.audio_active = True
         self.audio_playing = state["playing"]
+        self.audio_loading = state["loading"]
         if video["id"] != self.audio_video.get("id") or queue is not self.audio_rows_queue:
             self.audio_video = video
             self.audio_title = video["title"]
@@ -1143,7 +1175,8 @@ class AskeApp(App):
             box.clear_widgets()
             for number, video in enumerate(queue["videos"]):
                 box.add_widget(QueueRow(index=number, title=video["title"],
-                                        channel=video.get("channel", "")))
+                                        channel=video.get("channel", ""),
+                                        online=queue["online"][number]))
         for row in box.children:
             row.current = row.index == index
 

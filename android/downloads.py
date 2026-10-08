@@ -345,6 +345,29 @@ class DownloadManager:
             os.remove(path)
 
 
+def stream_url(video_id):
+    """Adresse du son d'une vidéo, pour l'écouter sans la télécharger, et les en-têtes HTTP à
+    envoyer avec (le lecteur d'Android lit cette adresse directement). Elle expire au bout de
+    quelques heures. Lève une exception si la vidéo est introuvable ou sans connexion."""
+    import yt_dlp
+
+    options = {"format": AUDIO_FORMAT, "logger": Silent(), "noplaylist": True, "cachedir": False}
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(WATCH_PAGE.format(video_id), download=False)
+    return info["url"], info.get("http_headers") or {}
+
+
+def cache_folder():
+    """Dossier des fichiers jetables (pochettes des pistes en ligne) : Android peut le vider."""
+    if platform == "android":
+        folder = PythonActivity.mActivity.getCacheDir().getAbsolutePath()
+    else:
+        import tempfile
+        folder = os.path.join(tempfile.gettempdir(), "aske")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
 def find_ffmpeg():
     """Chemin du programme ffmpeg : celui livré avec Aske sur Android, celui du système sur PC."""
     if platform == "android":

@@ -21,6 +21,7 @@ import android.media.MediaPlayer;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -28,19 +29,30 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.kivy.android.PythonActivity;
 
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
 /**
- * Lecteur des MP3 : joue une liste de pistes à la suite, en arrière-plan.
+ * Lecteur audio : joue une liste de pistes à la suite, en arrière-plan.
  *
  * Contrairement aux vidéos (lues par une WebView, dans l'écran d'Aske), le son continue quand
  * on passe à une autre application ou qu'on éteint l'écran. La notification, l'écran de
  * verrouillage et les boutons d'un casque le commandent (MediaSession).
  *
- * Aske (audio.py) lui confie la liste avec play, le commande avec command, seekTo et jump, et
- * relève où il en est avec les get… : tout cela depuis le fil principal d'Android, celui du
- * service. L'enchaînement des pistes se fait ici, sans attendre Aske (en arrière-plan, Kivy
- * est à l'arrêt).
+ * Une piste est un MP3 du téléphone, ou le son d'une vidéo lu directement sur YouTube. Pour
+ * celle-ci, l'adresse est d'abord vide : le service attend qu'Aske la trouve (avec yt-dlp) et
+ * la lui donne avec provide. Elle expire au bout de quelques heures : en cas d'erreur, le
+ * service la vide et attend une nouvelle adresse, puis reprend au même endroit.
+ *
+ * Aske (audio.py) lui confie la liste avec play, le commande avec command, seekTo, jump et
+ * provide, et relève où il en est avec les get… : tout cela depuis le fil principal d'Android,
+ * celui du service. L'enchaînement des pistes se fait ici, sans attendre Aske (en arrière-plan,
+ * Kivy est à l'arrêt ; Aske continue de relever où en est le lecteur, voir audio.py).
  */
 public class AudioService extends Service {
     public static final String TOGGLE = "lecture";
@@ -58,14 +70,23 @@ public class AudioService extends Service {
     private static final int FORWARD_MS = 30_000;
     /** « Précédente » après 5 s de lecture : retour au début de la piste. */
     private static final int RESTART_MS = 5_000;
+    /** Erreurs de lecture en ligne tolérées sur une piste (nouvelle adresse à chaque fois). */
+    private static final int MAX_FAILURES = 2;
+    /** Fin « annoncée » plus de 10 s avant la vraie fin d'une piste en ligne : coupure. */
+    private static final int END_MARGIN_MS = 10_000;
+    /** Le temps qu'Aske trouve une adresse, écran éteint. */
+    private static final long WAIT_LOCK_MS = 60_000;
     private static final AudioAttributes ATTRIBUTES = new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build();
 
-    // Liste confiée par Aske. starts : où (re)prendre chaque piste, en ms ; mis à jour quand
-    // on quitte une piste, pour y revenir au même endroit.
+    // Liste confiée par Aske. uris : content://, file://, https:// ou "" (adresse à trouver) ;
+    // headers : en-têtes HTTP à envoyer avec une adresse https (en JSON). starts : où
+    // (re)prendre chaque piste, en ms ; mis à jour quand on quitte une piste, pour y revenir
+    // au même endroit.
     private static String[] uris = new String[0];
+    private static String[] headers;
     private static String[] titles;
     private static String[] artists;
     private static String[] artworks;
@@ -80,6 +101,14 @@ public class AudioService extends Service {
     private boolean playing;
     /** Mis en pause par un appel ou une autre application : reprendre ensuite. */
     private boolean resumeOnFocus;
+    /** Piste en ligne dont on attend l'adresse (provide). */
+    private boolean waiting;
+    /** Lecture en ligne arrêtée le temps de recevoir la suite. */
+    private boolean buffering;
+    /** Erreurs de lecture en ligne sur la piste en cours. */
+    private int failures;
+    private WifiManager.WifiLock wifiLock;
+    private PowerManager.WakeLock waitLock;
     private boolean noisyRegistered;
     private boolean foreground;
     private Bitmap artwork;
@@ -90,14 +119,16 @@ public class AudioService extends Service {
     // --- Commandes d'Aske (fil principal d'Android) ------------------------------------------
 
     /** Lit la liste à partir de la piste n° first. */
-    public static void play(Context context, String[] uris, String[] titles, String[] artists,
-                            String[] artworks, int[] starts, int first) {
+    public static void play(Context context, String[] uris, String[] headers, String[] titles,
+                            String[] artists, String[] artworks, int[] starts, int first) {
         if (instance != null) {
             // L'ancienne piste s'arrête avant que la liste change : ses relevés ne se
             // mélangent pas avec ceux de la nouvelle.
             instance.releasePlayer();
+            instance.failures = 0;
         }
         AudioService.uris = uris;
+        AudioService.headers = headers;
         AudioService.titles = titles;
         AudioService.artists = artists;
         AudioService.artworks = artworks;
@@ -132,6 +163,42 @@ public class AudioService extends Service {
         if (instance != null && track >= 0 && track < uris.length) {
             instance.load(track, true);
         }
+    }
+
+    /**
+     * Adresse en ligne de la piste n° track, trouvée par Aske, avec ses en-têtes HTTP (JSON) et
+     * sa pochette. Adresse vide : la piste est illisible (vidéo retirée, pas de connexion…).
+     */
+    public static void provide(int track, String uri, String header, String artwork) {
+        if (track < 0 || track >= uris.length) {
+            return;
+        }
+        boolean current = instance != null && track == index && instance.waiting;
+        if (uri == null || uri.isEmpty()) {
+            if (current) {
+                instance.skipBroken();
+            }
+            return;
+        }
+        uris[track] = uri;
+        headers[track] = header;
+        if (artwork != null && !artwork.isEmpty()) {
+            artworks[track] = artwork;
+        }
+        if (current) {
+            instance.load(track, instance.playing);
+        }
+    }
+
+    /** Piste dont le service attend l'adresse (provide), ou -1. */
+    public static int getWaiting() {
+        return instance != null && instance.waiting ? index : -1;
+    }
+
+    /** Lecture demandée mais pas encore de son : adresse, préparation ou réception en cours. */
+    public static boolean isLoading() {
+        return instance != null && instance.playing
+                && (instance.waiting || instance.buffering || !instance.prepared);
     }
 
     public static boolean isActive() {
@@ -230,9 +297,25 @@ public class AudioService extends Service {
     /** Prépare la piste n° track, et la lance si play. */
     private void load(int track, boolean play) {
         releasePlayer();
+        if (track != index) {
+            failures = 0;
+        }
         index = track;
         playing = play;
+        waiting = false;
+        buffering = false;
         artwork = loadArtwork(artworks[track]);
+        if (uris[track].isEmpty()) {
+            // Piste en ligne : Aske cherche son adresse (provide). Processeur et Wi-Fi restent
+            // actifs pendant ce temps, même écran éteint.
+            waiting = true;
+            holdWakeLock();
+            holdNetwork(true);
+            refresh();
+            return;
+        }
+        releaseWakeLock();
+        holdNetwork(playing && isOnline());
         final MediaPlayer mediaPlayer = new MediaPlayer();
         player = mediaPlayer;
         mediaPlayer.setAudioAttributes(ATTRIBUTES);
@@ -250,6 +333,11 @@ public class AudioService extends Service {
             }
         });
         mediaPlayer.setOnCompletionListener(mp -> {
+            if (isOnline() && mp.getCurrentPosition() < mp.getDuration() - END_MARGIN_MS) {
+                // Lecture en ligne coupée bien avant la fin (réseau perdu) : on reprend ici.
+                failed();
+                return;
+            }
             // Écoutée jusqu'au bout : elle repartira du début (releasePlayer ne garde pas la fin).
             prepared = false;
             starts[index] = 0;
@@ -259,18 +347,49 @@ public class AudioService extends Service {
                 finish();
             }
         });
-        // Fichier supprimé depuis une autre application, ou illisible : on passe au suivant.
         mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-            skipBroken();
+            failed();
             return true;
         });
+        // Lecture en ligne : le son s'interrompt le temps de recevoir la suite.
+        mediaPlayer.setOnInfoListener((mp, what, extra) -> {
+            if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START
+                    || what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+                buffering = what == MediaPlayer.MEDIA_INFO_BUFFERING_START;
+                refresh();
+            }
+            return false;
+        });
         try {
-            mediaPlayer.setDataSource(this, Uri.parse(uris[track]));
+            mediaPlayer.setDataSource(this, Uri.parse(uris[track]), headersOf(headers[track]));
             mediaPlayer.prepareAsync();
         } catch (Exception error) {
-            handler.post(this::skipBroken);
+            handler.post(() -> {
+                if (player == mediaPlayer) {  // pas déjà passé à une autre piste
+                    failed();
+                }
+            });
         }
         refresh();
+    }
+
+    /** La piste ne se lit pas (ou plus). */
+    private void failed() {
+        if (isOnline() && failures < MAX_FAILURES) {
+            // Adresse expirée ou coupure du réseau : Aske en cherche une nouvelle, et la
+            // lecture reprendra au même endroit (releasePlayer garde la position).
+            failures++;
+            releasePlayer();
+            uris[index] = "";
+            load(index, playing);
+        } else {
+            // Fichier supprimé depuis une autre application, vidéo retirée… : piste suivante.
+            skipBroken();
+        }
+    }
+
+    private boolean isOnline() {
+        return uris[index].startsWith("http");
     }
 
     private void skipBroken() {
@@ -284,6 +403,7 @@ public class AudioService extends Service {
     private void resume() {
         // Priorité refusée (appel en cours…) : on reste en pause.
         playing = !prepared || requestFocus();
+        holdNetwork(playing && (waiting || isOnline()));
         if (prepared && playing) {
             player.start();
             if (!noisyRegistered) {
@@ -300,6 +420,7 @@ public class AudioService extends Service {
             player.pause();
         }
         unregisterNoisy();
+        holdNetwork(waiting);
         refresh();
     }
 
@@ -331,6 +452,9 @@ public class AudioService extends Service {
     private void finish() {
         releasePlayer();
         playing = false;
+        waiting = false;
+        holdNetwork(false);
+        releaseWakeLock();
         abandonFocus();
         instance = null;
         uris = new String[0];
@@ -350,6 +474,54 @@ public class AudioService extends Service {
             finish();
         }
         super.onDestroy();
+    }
+
+    /** Wi-Fi actif écran éteint, pendant la lecture en ligne. */
+    private void holdNetwork(boolean hold) {
+        if (hold) {
+            if (wifiLock == null) {
+                WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "aske:ecoute");
+                wifiLock.setReferenceCounted(false);
+            }
+            wifiLock.acquire();
+        } else if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+        }
+    }
+
+    /** Processeur actif le temps qu'Aske trouve une adresse (au plus une minute). */
+    private void holdWakeLock() {
+        if (waitLock == null) {
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            waitLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "aske:adresse");
+            waitLock.setReferenceCounted(false);
+        }
+        waitLock.acquire(WAIT_LOCK_MS);
+    }
+
+    private void releaseWakeLock() {
+        if (waitLock != null && waitLock.isHeld()) {
+            waitLock.release();
+        }
+    }
+
+    /** En-têtes HTTP donnés par Aske en JSON ({"User-Agent": …}), ou null. */
+    private static Map<String, String> headersOf(String json) {
+        if (json == null || json.isEmpty()) {
+            return null;
+        }
+        Map<String, String> map = new HashMap<>();
+        try {
+            JSONObject object = new JSONObject(json);
+            for (Iterator<String> keys = object.keys(); keys.hasNext(); ) {
+                String key = keys.next();
+                map.put(key, object.getString(key));
+            }
+        } catch (JSONException error) {
+            return null;
+        }
+        return map;
     }
 
     // --- Priorité du son (appels, autres applications) et débranchement du casque ----------
@@ -487,11 +659,12 @@ public class AudioService extends Service {
         if (index + 1 < uris.length) {
             actions |= PlaybackState.ACTION_SKIP_TO_NEXT;
         }
+        boolean sounding = prepared && !buffering && !waiting;
         int state = !playing ? PlaybackState.STATE_PAUSED
-                : prepared ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_BUFFERING;
+                : sounding ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_BUFFERING;
         session.setPlaybackState(new PlaybackState.Builder()
                 .setActions(actions)
-                .setState(state, position(), playing && prepared ? 1f : 0f,
+                .setState(state, position(), playing && sounding ? 1f : 0f,
                         SystemClock.elapsedRealtime())
                 // Android 13 et plus : bouton « Arrêter » dans les commandes du son.
                 .addCustomAction(new PlaybackState.CustomAction.Builder(

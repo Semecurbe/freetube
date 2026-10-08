@@ -633,7 +633,7 @@
                 color: TEXT
 
             LineLabel:
-                text: app.audio_elapsed + (" / " + app.audio_total if app.audio_total else "") + (" · " + app.audio_label if app.audio_label else "")
+                text: ("Chargement…" if app.audio_loading else app.audio_elapsed + (" / " + app.audio_total if app.audio_total else "")) + (" · " + app.audio_label if app.audio_label else "")
                 font_size: sp(12)
                 color: MUTED
 
@@ -694,7 +694,8 @@
     color: TEXT
     pos_hint: {"center_y": 0.5}
 
-# Une piste de l'écran d'écoute : son numéro (ou le symbole de lecture), titre et chaîne.
+# Une piste de l'écran d'écoute : son numéro (ou le symbole de lecture), titre et chaîne
+# (« en ligne » si elle n'est pas téléchargée).
 <QueueRow>:
     size_hint_y: None
     height: max(dp(56), (sp(14) + sp(12)) * 1.2 + dp(20))
@@ -725,7 +726,7 @@
             color: ACCENT if root.current else TEXT
 
         LineLabel:
-            text: root.channel
+            text: root.channel + (" · en ligne" if root.online else "")
             font_size: sp(12)
             color: MUTED
 
@@ -958,8 +959,8 @@ ScreenManager:
                             BoxLayout:
                                 orientation: "vertical"
 
-                                # Nom, nombre de vidéos et de MP3 ; lire les vidéos, écouter les MP3,
-                                # télécharger en MP3 les vidéos qui ne le sont pas encore
+                                # Nom, nombre de vidéos et de MP3 ; lire les vidéos, les écouter en
+                                # arrière-plan (téléchargées ou non), les télécharger toutes en MP3
                                 BoxLayout:
                                     orientation: "vertical"
                                     size_hint_y: None
@@ -998,13 +999,13 @@ ScreenManager:
 
                                         SmallPill:
                                             text: "[font=%s]%s[/font] Écouter" % (ICON_FONT, ICONS["audio"])
-                                            size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.playlist_mp3 else (0, 0)
-                                            opacity: 1 if app.playlist_mp3 else 0
-                                            disabled: not app.playlist_mp3
+                                            size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.playlist_listenable else (0, 0)
+                                            opacity: 1 if app.playlist_listenable else 0
+                                            disabled: not app.playlist_listenable
                                             on_release: app.listen_playlist()
 
                                         SmallPill:
-                                            text: "[font=%s]%s[/font] MP3" % (ICON_FONT, ICONS["download"])
+                                            text: "[font=%s]%s[/font] Tout en MP3" % (ICON_FONT, ICONS["download"])
                                             size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.playlist_missing else (0, 0)
                                             opacity: 1 if app.playlist_missing else 0
                                             disabled: not app.playlist_missing
@@ -1349,8 +1350,8 @@ ScreenManager:
                                 pos_hint: {"center_y": 0.5}
                                 on_release: app.toggle_watch_subscription()
 
-                        # Enregistrer dans une playlist ; télécharger en MP3 (puis l'écouter) ou en vidéo.
-                        # Les boutons cachés (taille nulle) viennent après les autres.
+                        # Enregistrer dans une playlist ; écouter en arrière-plan ; télécharger en MP3 ou
+                        # en vidéo. Les boutons cachés (taille nulle) viennent après les autres.
                         StackLayout:
                             size_hint_y: None
                             height: self.minimum_height
@@ -1362,12 +1363,19 @@ ScreenManager:
                                 on_release: app.toggle_playlists_section()
 
                             SmallPill:
-                                text: "[font=%s]%s[/font] %s" % (ICON_FONT, ICONS["audio"] if app.watch_can_listen else ICONS["download"], "Écouter" if app.watch_can_listen else "MP3")
-                                fill: ACCENT if app.watch_can_listen else SURFACE
-                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download or app.watch_can_listen else (0, 0)
-                                opacity: 1 if app.can_download or app.watch_can_listen else 0
-                                disabled: not (app.can_download or app.watch_can_listen)
-                                on_release: app.listen_watching() if app.watch_can_listen else app.download("mp3")
+                                text: "[font=%s]%s[/font] Écouter" % (ICON_FONT, ICONS["audio"])
+                                fill: ACCENT
+                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.watch_can_listen else (0, 0)
+                                opacity: 1 if app.watch_can_listen else 0
+                                disabled: not app.watch_can_listen
+                                on_release: app.listen_watching()
+
+                            SmallPill:
+                                text: "[font=%s]%s[/font] MP3" % (ICON_FONT, ICONS["download"])
+                                size: (self.texture_size[0] + dp(28), PILL_HEIGHT) if app.can_download else (0, 0)
+                                opacity: 1 if app.can_download else 0
+                                disabled: not app.can_download
+                                on_release: app.download("mp3")
 
                             SmallPill:
                                 text: "[font=%s]%s[/font] Vidéo" % (ICON_FONT, ICONS["download"])
@@ -1396,7 +1404,7 @@ ScreenManager:
                             font_size: sp(13)
                             color: MUTED
 
-    # Écoute des MP3 : pochette et commandes en haut ; dessous, playlists et pistes de la liste.
+    # Écoute en arrière-plan : pochette et commandes en haut ; dessous, playlists et pistes de la liste.
     # Le son continue quand on quitte cet écran, ou Aske.
     Screen:
         name: "ecoute"
@@ -1498,7 +1506,7 @@ ScreenManager:
                     height: sp(12) * 1.2 + dp(2)
 
                     LineLabel:
-                        text: app.audio_elapsed
+                        text: "Chargement…" if app.audio_loading else app.audio_elapsed
                         font_size: sp(12)
                         color: MUTED
 

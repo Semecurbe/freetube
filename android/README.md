@@ -1,8 +1,8 @@
 # Aske
 
 Application Android écrite en Python avec [Kivy], pour regarder ou écouter des vidéos YouTube
-via `yout-ube.com`, les garder sur le téléphone (vidéo, ou MP3), et écouter les MP3 en
-arrière-plan pendant qu'on utilise une autre application.
+via `yout-ube.com`, les garder sur le téléphone (vidéo, ou MP3), et les écouter en
+arrière-plan pendant qu'on utilise une autre application, téléchargées ou non.
 
 ## Les onglets
 
@@ -15,8 +15,10 @@ arrière-plan pendant qu'on utilise une autre application.
   d'une chaîne ou sous une vidéo).
 - **Playlists** : vos playlists, créées ici ou depuis une vidéo. Dans une playlist :
   - « Tout lire » lit les vidéos à la suite ;
-  - « Écouter » écoute ses MP3 à la suite, en arrière-plan (voir plus bas) ;
-  - « MP3 » télécharge en MP3 les vidéos qui ne le sont pas encore.
+  - « Écouter » écoute toute la playlist à la suite, en arrière-plan, téléchargée ou non
+    (voir plus bas) ;
+  - « Tout en MP3 » télécharge en MP3 les vidéos qui ne le sont pas encore. Sous le nom de la
+    playlist, Aske indique combien de MP3 sont prêts et combien sont en cours.
 - **Historique** : les vidéos regardées, avec l'endroit où vous vous êtes arrêté (barre rouge
   sous la miniature).
 - **Téléchargés** : les vidéos et les MP3 gardés sur le téléphone, lisibles sans connexion.
@@ -32,8 +34,8 @@ tournez le téléphone), et dessous :
 
 - **le nom de la chaîne** : un appui l'affiche, et « retour » ramène à la vidéo ;
   « S'abonner » l'ajoute à l'onglet Chaînes ;
-- **MP3** ou **Vidéo** : télécharge seulement le son, en MP3, ou la vidéo entière. Une fois le
-  MP3 prêt, le bouton devient **Écouter** ;
+- **Écouter** : ferme la vidéo et passe à l'écoute en arrière-plan (voir plus bas) ;
+- **MP3** ou **Vidéo** : télécharge seulement le son, en MP3, ou la vidéo entière ;
 - **Playlist** : l'enregistre dans une ou plusieurs playlists (cochez-les), ou dans une
   nouvelle (« + Nouvelle playlist »).
 
@@ -54,13 +56,20 @@ automatique* (Paramètres) le désactive : le bouton « Suivante » passe à la 
 
 Éteignez l'écran pendant une vidéo : le son continue. Passer à une autre application met la
 vidéo en pause ; elle reprend au retour dans Aske. Pour écouter en naviguant sur Chrome, par
-exemple, téléchargez-la en MP3.
+exemple, appuyez sur « Écouter » sous la vidéo.
 
-## Écoute des MP3 en arrière-plan
+## Écoute en arrière-plan
 
-« Écouter » (dans une playlist, sous une vidéo téléchargée en MP3) ou un appui sur un MP3 de
-l'onglet Téléchargés lance l'écoute : les MP3 s'enchaînent, et le son continue quand vous
-passez à une autre application ou éteignez l'écran.
+« Écouter » (dans une playlist, ou sous une vidéo) ou un appui sur un MP3 de l'onglet
+Téléchargés lance l'écoute : les pistes s'enchaînent, et le son continue quand vous passez à
+une autre application ou éteignez l'écran.
+
+Une piste téléchargée en MP3 est lue depuis le téléphone. Les autres sont lues **en ligne** :
+il faut une connexion, et une heure d'écoute consomme environ 60 Mo de données. L'écran
+d'écoute les marque « en ligne », et affiche « Chargement… » le temps que le son arrive (une
+ou deux secondes ; la piste suivante est préparée un peu avant la fin de celle en cours). Sans
+connexion, les pistes en ligne sont passées et seuls les MP3 sont joués. Les directs ne
+s'écoutent pas.
 
 - En bas de l'écran, le **mini-lecteur** montre la piste en cours : lecture ou pause, piste
   suivante, arrêt. Un appui dessus ouvre l'**écran d'écoute** : pochette, barre de lecture
@@ -71,8 +80,11 @@ passez à une autre application ou éteignez l'écran.
   d'une enceinte Bluetooth commandent l'écoute.
 - L'écoute se met en pause quand une autre application joue du son (une vidéo dans Chrome…) ou
   quand on débranche le casque ; pendant un appel, elle reprend ensuite toute seule.
-- Comme pour les vidéos, Aske retient où vous en êtes dans chaque MP3 et le reprend là. La
+- Comme pour les vidéos, Aske retient où vous en êtes dans chaque piste et la reprend là. La
   barre « Reprendre » relance le MP3 plutôt que la vidéo, s'il y en a un.
+- YouTube ne garde l'adresse du son valable que quelques heures : si elle expire pendant un
+  long livre audio (ou après une longue pause), Aske en demande une nouvelle et reprend au même
+  endroit.
 - À la fin de la liste, ou avec « Arrêter », l'écoute s'arrête et la notification disparaît.
 
 Pendant la lecture et les téléchargements, Android affiche une notification « Aske » : c'est
@@ -121,7 +133,7 @@ son site. À chaque ouverture, elle réaffiche la dernière chaîne ou la derni�
 3. Installez l'APK (`adb` a été téléchargé avec le SDK Android lors de la compilation) :
 
    ```bash
-   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.5-arm64-v8a-debug.apk
+   ~/.buildozer/android/platform/android-sdk/platform-tools/adb install -r bin/freetube-1.6-arm64-v8a-debug.apk
    ```
 
 Sans câble : copiez le fichier `.apk` sur le téléphone et ouvrez-le. Android demandera
@@ -163,8 +175,8 @@ python3.13 -m venv .venv && .venv/bin/pip install kivy certifi yt-dlp
 Sur PC, les vidéos s'ouvrent dans le navigateur, et le téléchargement de vidéos entières ne
 fonctionne pas (l'assemblage de l'image et du son passe par Android). Les MP3, si : il faut
 FFmpeg (`sudo apt install ffmpeg`), et ils vont dans votre dossier Musique/Aske. Leur écoute
-passe par le son de Kivy, qui repart toujours du début de la piste : de quoi essayer
-l'interface.
+passe par le son de Kivy, qui repart toujours du début de la piste et ne lit pas en ligne (les
+pistes non téléchargées sont passées) : de quoi essayer l'interface.
 
 ## Icônes
 
